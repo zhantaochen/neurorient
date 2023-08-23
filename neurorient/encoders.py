@@ -50,7 +50,7 @@ class SteerableCNN(torch.nn.Module):
         # we store the input type for wrapping the images into a geometric tensor during the forward pass
         self.input_type = in_type
         
-        mask_S = min(input_shape[1:] if len(input_shape)==3 else input_shape)
+        self.mask_S = min(input_shape[1:] if len(input_shape)==3 else input_shape)
         
         # # convolution 1
         # # first specify the output type of the convolutional layer
@@ -156,39 +156,114 @@ class SteerableCNN(torch.nn.Module):
         paddings = [1, 2, 2, 2, 2, 1, 2, 1]
         pools_after_blocks = [2, 4, 6, 8]
 
+        self.build_blocks(channels, kernel_sizes, paddings, pools_after_blocks)
+
+        # # For the first iteration, the input type is special
+        # # in_type = esnn.FieldType(self.r2_act, channels[0]*[self.r2_act.regular_repr])
+        # out_type = esnn.FieldType(self.r2_act, channels[0]*[self.r2_act.regular_repr])
+        # setattr(self, "block1", esnn.SequentialModule(
+        #             esnn.MaskModule(in_type, self.mask_S, margin=1),
+        #             esnn.R2Conv(in_type, out_type, kernel_size=kernel_sizes[0], padding=paddings[0], bias=False),
+        #             esnn.InnerBatchNorm(out_type),
+        #             esnn.ReLU(out_type, inplace=True)
+        #         ))
+        
+        # # For subsequent iterations
+        # for i in range(1, len(channels)):
+        #     print(f"building block {i+1}")
+        #     in_type = getattr(self, f"block{i}").out_type
+        #     out_type = esnn.FieldType(self.r2_act, channels[i]*[self.r2_act.regular_repr])
+            
+        #     conv_module = esnn.SequentialModule(
+        #         esnn.R2Conv(in_type, out_type, kernel_size=kernel_sizes[i], padding=paddings[i], bias=False),
+        #         esnn.InnerBatchNorm(out_type),
+        #         esnn.ReLU(out_type, inplace=True)
+        #     )
+            
+        #     setattr(self, f"block{i+1}", conv_module)
+            
+        #     # Check if we should add a pooling layer after this block
+        #     if (i+1) in pools_after_blocks:
+        #         if (i+1) < 6:
+        #             pool_module = esnn.SequentialModule(
+        #                 esnn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2)
+        #             )
+        #         else:
+        #             pool_module = esnn.SequentialModule(
+        #                 esnn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2, padding=0)
+        #             )
+
+        #         setattr(self, f"pool{(i+1)//2}", pool_module)
+
+
+        self.gpool = esnn.GroupPooling(self.blocks[-1].out_type)
+
+    def build_blocks(
+        self, 
+        channels: tuple,
+        kernel_sizes: tuple,
+        paddings: tuple,
+        pools_after_blocks: tuple
+        ):
         # For the first iteration, the input type is special
         # in_type = esnn.FieldType(self.r2_act, channels[0]*[self.r2_act.regular_repr])
+
+        self.blocks = nn.ModuleList()
+
         out_type = esnn.FieldType(self.r2_act, channels[0]*[self.r2_act.regular_repr])
-        setattr(self, "block1", esnn.SequentialModule(
-                    esnn.MaskModule(in_type, mask_S, margin=1),
-                    esnn.R2Conv(in_type, out_type, kernel_size=kernel_sizes[0], padding=paddings[0], bias=False),
-                    esnn.InnerBatchNorm(out_type),
-                    esnn.ReLU(out_type, inplace=True)
-                ))
+        # setattr(self, "block1", esnn.SequentialModule(
+        #             esnn.MaskModule(in_type, self.mask_S, margin=1),
+        #             esnn.R2Conv(in_type, out_type, kernel_size=kernel_sizes[0], padding=paddings[0], bias=False),
+        #             esnn.InnerBatchNorm(out_type),
+        #             esnn.ReLU(out_type, inplace=True)
+        #         ))
+        self.blocks.append(esnn.SequentialModule(
+                esnn.MaskModule(self.input_type, self.mask_S, margin=1),
+                esnn.R2Conv(self.input_type, out_type, kernel_size=kernel_sizes[0], padding=paddings[0], bias=False),
+                esnn.InnerBatchNorm(out_type),
+                esnn.ReLU(out_type, inplace=True)
+            )
+        )
         
         # For subsequent iterations
         for i in range(1, len(channels)):
             print(f"building block {i+1}")
-            in_type = getattr(self, f"block{i}").out_type
+            # in_type = getattr(self, f"block{i}").out_type
+            in_type = self.blocks[-1].out_type
             out_type = esnn.FieldType(self.r2_act, channels[i]*[self.r2_act.regular_repr])
             
-            conv_module = esnn.SequentialModule(
-                esnn.R2Conv(in_type, out_type, kernel_size=kernel_sizes[i], padding=paddings[i], bias=False),
-                esnn.InnerBatchNorm(out_type),
-                esnn.ReLU(out_type, inplace=True)
-            )
+            # conv_module = esnn.SequentialModule(
+            #     esnn.R2Conv(in_type, out_type, kernel_size=kernel_sizes[i], padding=paddings[i], bias=False),
+            #     esnn.InnerBatchNorm(out_type),
+            #     esnn.ReLU(out_type, inplace=True)
+            # )
             
-            setattr(self, f"block{i+1}", conv_module)
+            # setattr(self, f"block{i+1}", conv_module)
+
+            self.blocks.append(esnn.SequentialModule(
+                    esnn.R2Conv(in_type, out_type, kernel_size=kernel_sizes[i], padding=paddings[i], bias=False),
+                    esnn.InnerBatchNorm(out_type),
+                    esnn.ReLU(out_type, inplace=True)
+                )
+            )
             
             # Check if we should add a pooling layer after this block
             if (i+1) in pools_after_blocks:
-                pool_module = esnn.SequentialModule(
-                    esnn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2)
-                )
-                setattr(self, f"pool{(i+1)//2}", pool_module)
-
-
-        self.gpool = esnn.GroupPooling(out_type)
+                if (i+1) < 6:
+                    # pool_module = esnn.SequentialModule(
+                    #     esnn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2)
+                    # )
+                    self.blocks.append(esnn.SequentialModule(
+                        esnn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2)
+                    ))
+                else:
+                    # pool_module = esnn.SequentialModule(
+                    #     esnn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2, padding=0)
+                    # )
+                    self.blocks.append(esnn.SequentialModule(
+                        esnn.PointwiseAvgPoolAntialiased(out_type, sigma=0.66, stride=2, padding=0)
+                    ))
+                # setattr(self, f"pool{(i+1)//2}", pool_module)
 
 
     def forward(self, input: torch.Tensor):
@@ -204,28 +279,31 @@ class SteerableCNN(torch.nn.Module):
         #
         # The Layer outputs a new GeometricTensor, associated with the layer's output type.
         # As a result, consecutive layers need to have matching input/output types
-        x = self.block1(x)
-        x = self.block2(x)
-        x = self.pool1(x)
+        # x = self.block1(x)
+        # x = self.block2(x)
+        # x = self.pool1(x)
 
-        print(x.shape)
+        # print(x.shape)
         
-        self.feat_after_pool1 = x.tensor.clone().detach()
+        # self.feat_after_pool1 = x.tensor.clone().detach()
 
-        x = self.block3(x)
-        x = self.block4(x)
-        x = self.pool2(x)
-        print(x.shape)
+        # x = self.block3(x)
+        # x = self.block4(x)
+        # x = self.pool2(x)
+        # print(x.shape)
         
-        x = self.block5(x)
-        x = self.block6(x)
-        x = self.pool3(x)
-        print(x.shape)
+        # x = self.block5(x)
+        # x = self.block6(x)
+        # x = self.pool3(x)
+        # print(x.shape)
         
-        x = self.block7(x)
-        x = self.block8(x)
-        x = self.pool4(x)
-        print(x.shape)
+        # x = self.block7(x)
+        # x = self.block8(x)
+        # x = self.pool4(x)
+        # print(x.shape)
+
+        for _module in self.blocks:
+            x = _module(x)
 
         # # pool over the group
         # x = self.gpool(x)
