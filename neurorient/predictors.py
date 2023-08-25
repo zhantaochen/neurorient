@@ -8,7 +8,8 @@ import e3nn
 from e3nn import o3
 import warnings
 
-from .encoders import ImageEncoder, SteerableCNN
+from .encoders.encoders import ImageEncoder, SteerableCNN
+from .encoders.e2wrn import Wide_ResNet
 
 from .external.image2sphere import so3_utils
 from .external.image2sphere import (
@@ -19,6 +20,8 @@ from .external.image2sphere import (
     ResNet,
     SO3Convolution,
 )
+
+from .utils_transform import weighted_average_matrices
 
 class BaseSO3Predictor(nn.Module):
     def __init__(self,
@@ -39,7 +42,11 @@ class BaseSO3Predictor(nn.Module):
         elif encoder.find('swin') > -1:
             self.encoder = ImageEncoder()
         elif encoder.find('steerablecnn') > -1:
-            self.encoder = SteerableCNN(input_shape=encoder_input_shape)  
+            self.encoder = SteerableCNN(input_shape=encoder_input_shape)
+        elif encoder.find('e2wrn') > -1:
+            self.encoder = Wide_ResNet(
+                16, 2, 0.0, num_classes=-1, initial_stride=1, N=8, f=False, r=0
+            ) 
 
         dummy_input = torch.zeros((1,) + tuple(encoder_input_shape))
         self.encoder.output_shape = self.encoder(dummy_input).shape[1:]
@@ -186,6 +193,18 @@ class I2S(BaseSO3Predictor):
 
         return rots
 
+    def compute_average_rotmats(self, x, o):
+        ''' compute probabilities over eval grid'''
+        harmonics = self.forward(x, o)
+        probs = torch.matmul(harmonics, o).squeeze(1)
+        probs = nn.Softmax(dim=1)(probs)
+        
+        # output_rotmats: [n_points, 3, 3]
+        # probs: [batch_size, n_points]
+        avg_rotmat = weighted_average_matrices(self.output_rotmats, probs)
+        
+        return avg_rotmat
+    
     @torch.no_grad()
     def compute_probabilities(self, x, o, use_o_for_eval=False):
         ''' compute probabilities over eval grid'''

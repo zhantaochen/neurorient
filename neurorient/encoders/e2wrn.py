@@ -121,7 +121,7 @@ class WideBasic(enn.EquivariantModule):
                  stride: int = 1,
                  out_type: enn.FieldType = None,
                  ):
-        super(WideBasic, self).__init__()
+        super().__init__()
         
         if out_type is None:
             out_type = in_type
@@ -213,13 +213,15 @@ class Wide_ResNet(torch.nn.Module):
         NOTICE: if restriction to ``N/2`` is performed, ``N`` needs to be even!
         
         """
-        super(Wide_ResNet, self).__init__()
+        super().__init__()
         
         assert ((depth - 4) % 6 == 0), 'Wide-resnet depth should be 6n+4'
         n = int((depth - 4) / 6)
         k = widen_factor
         
         print(f'| Wide-Resnet {depth}x{k}')
+        
+        self.num_classes = num_classes
         
         nStages = [16, 16 * k, 32 * k, 64 * k]
         
@@ -257,7 +259,7 @@ class Wide_ResNet(torch.nn.Module):
         
         # the input has 3 color channels (RGB).
         # Color channels are trivial fields and don't transform when the input is rotated or flipped
-        r1 = enn.FieldType(self.gspace, [self.gspace.trivial_repr] * 3)
+        r1 = enn.FieldType(self.gspace, [self.gspace.trivial_repr,])
         
         # input field type of the model
         self.in_type = r1
@@ -294,7 +296,8 @@ class Wide_ResNet(torch.nn.Module):
         
         self.bn = enn.InnerBatchNorm(self.layer3.out_type, momentum=0.9)
         self.relu = enn.ReLU(self.bn.out_type, inplace=True)
-        self.linear = torch.nn.Linear(self.bn.out_type.size, num_classes)
+        if self.num_classes > 0:
+            self.linear = torch.nn.Linear(self.bn.out_type.size, num_classes)
         
         for name, module in self.named_modules():
             if isinstance(module, enn.R2Conv):
@@ -380,11 +383,12 @@ class Wide_ResNet(torch.nn.Module):
         # extract the tensor from the GeometricTensor to use the common Pytorch operations
         out = out.tensor
         
-        b, c, w, h = out.shape
-        out = F.avg_pool2d(out, (w, h))
-        
-        out = out.view(out.size(0), -1)
-        out = self.linear(out)
+        if self.num_classes > 0:
+            b, c, w, h = out.shape
+            out = F.avg_pool2d(out, (w, h))
+            
+            out = out.view(out.size(0), -1)
+            out = self.linear(out)
         
         return out
     
