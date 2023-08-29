@@ -22,8 +22,43 @@ def get_rho_function(real_mesh, rho):
     rho_func = RegularGridInterpolator((x, y, z), rho, bounds_error=False, fill_value=0.)
     return rho_func
 
+def get_reciprocal_mesh(voxel_number_1d, max_reciprocal_value):
+    """
+    Get a centered, symetric mesh of given dimensions. Altered from skopi.
 
-def get_real_mesh(voxel_number_1d, max_reciprocal_value):
+    Parameters
+    ----------
+    voxel_number_1d : int
+        number of voxels per axis
+    max_reciprocal_value : float
+        maximum voxel resolution in inverse Angstrom
+    xp: package
+        use numpy or cupy
+
+    Returns
+    -------
+    reciprocal_mesh : numpy.ndarray, shape (n,n,n,3)
+        grid of reciprocal space vectors for each voxel
+    """
+    linspace = torch.linspace(-max_reciprocal_value, max_reciprocal_value, voxel_number_1d)
+    reciprocal_mesh_stack = torch.stack(
+        torch.meshgrid(linspace, linspace, linspace, indexing='ij'))
+    reciprocal_mesh = torch.moveaxis(reciprocal_mesh_stack, 0, -1)
+
+    return reciprocal_mesh
+
+def reciprocal_mesh_2_real_mesh(reciprocal_mesh):
+    recp_pts = reciprocal_mesh[:,0,0,0]
+    real_step_size = 1 / (recp_pts[1] - recp_pts[0]) / recp_pts.shape[0]
+    real_lin = torch.arange(recp_pts.shape[0]) * real_step_size
+    real_lin = (real_lin - real_lin.max() / 2) * 1e10
+    real_mesh_stack = torch.stack(
+        torch.meshgrid(real_lin, real_lin, real_lin, indexing='ij'))
+    real_mesh = torch.moveaxis(real_mesh_stack, 0, -1)
+    
+    return real_mesh
+    
+def get_real_mesh(voxel_number_1d, max_reciprocal_value, return_reciprocal=False):
     """
     
     Parameters
@@ -39,15 +74,44 @@ def get_real_mesh(voxel_number_1d, max_reciprocal_value):
         grid of real space vectors for each voxel
     """
     
-    _lin = torch.linspace(-max_reciprocal_value, max_reciprocal_value, voxel_number_1d)
+    reciprocal_mesh = get_reciprocal_mesh(voxel_number_1d, max_reciprocal_value)
+    _lin = torch.linspace(-reciprocal_mesh.max(), reciprocal_mesh.max(), voxel_number_1d)
     step = _lin[1] - _lin[0]
     max_real_value = 1 / (2*step)
     linspace = torch.linspace(-max_real_value, max_real_value, voxel_number_1d) * 1e10
     real_mesh_stack = torch.stack(
             torch.meshgrid(linspace, linspace, linspace, indexing='ij'))
     real_mesh = torch.moveaxis(real_mesh_stack, 0, -1)
+    if return_reciprocal:
+        return real_mesh, reciprocal_mesh
+    else:
+        return real_mesh
+
+# def get_real_mesh(voxel_number_1d, max_reciprocal_value):
+#     """
     
-    return real_mesh
+#     Parameters
+#     ----------
+#     voxel_number_1d : int
+#         number of voxels per axis
+#     max_reciprocal_value : float
+#         maximum voxel resolution in inverse Angstrom
+
+#     Returns
+#     -------
+#     real_mesh : numpy.ndarray, shape (n,n,n,3)
+#         grid of real space vectors for each voxel
+#     """
+    
+#     _lin = torch.linspace(-max_reciprocal_value, max_reciprocal_value, voxel_number_1d)
+#     step = _lin[1] - _lin[0]
+#     max_real_value = 1 / (2*step)
+#     linspace = torch.linspace(-max_real_value, max_real_value, voxel_number_1d) * 1e10
+#     real_mesh_stack = torch.stack(
+#             torch.meshgrid(linspace, linspace, linspace, indexing='ij'))
+#     real_mesh = torch.moveaxis(real_mesh_stack, 0, -1)
+    
+#     return real_mesh
 
 def gen_nonuniform_positions(orientations, pixel_position_reciprocal):
     # Generate q points (h,k,l) from the given rotations and pixel positions
@@ -81,9 +145,7 @@ def gen_nonuniform_normalized_positions(
 
     # TODO: Control/set precisions needed here
     # scale and change type for compatibility with finufft
-    # H_ = H.flatten() / pixel_position_reciprocal.max() * pi / oversampling
-    # K_ = K.flatten() / pixel_position_reciprocal.max() * pi / oversampling
-    # L_ = L.flatten() / pixel_position_reciprocal.max() * pi / oversampling
+    # HKL = HKL.view(3, -1) / pixel_position_reciprocal.norm(dim=-1).max() * pi / oversampling
     HKL = HKL.view(3, -1) / pixel_position_reciprocal.max() * pi / oversampling
     return HKL
 

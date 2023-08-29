@@ -2,6 +2,37 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+import mrcfile
+
+def save_mrc(output, data, voxel_size=None, header_origin=None):
+    """
+    Save numpy array as an MRC file.
+
+    Parameters
+    ----------
+    output : string, default None
+        if supplied, save the aligned volume to this path in MRC format
+    data : numpy.ndarray
+        image or volume to save
+    voxel_size : float, default None
+        if supplied, use as value of voxel size in Angstrom in the header
+    header_origin : numpy.recarray
+        if supplied, use the origin from this header object
+    """
+    mrc = mrcfile.new(output, overwrite=True)
+    mrc.header.map = mrcfile.constants.MAP_ID
+    mrc.set_data(data.astype(np.float32))
+    if voxel_size is not None:
+        mrc.voxel_size = voxel_size
+    if header_origin is not None:
+        mrc.header['origin']['x'] = float(header_origin['origin']['x'])
+        mrc.header['origin']['y'] = float(header_origin['origin']['y'])
+        mrc.header['origin']['z'] = float(header_origin['origin']['z'])
+        mrc.update_header_from_data()
+        mrc.update_header_stats()
+    mrc.close()
+    return
+
 def display_images(images, columns, vmax=None):
     """
     Display images in a grid format.
@@ -46,10 +77,10 @@ def display_images_in_parallel(
     if ax is None:
         fig, ax = plt.subplots(2, N, figsize=(3 * N, 6.5))
     for i in range(N):
-        ax[0, i].imshow(tensors1[i], cmap='gray', vmax=tensors1[i].max() * 1e-3)
+        ax[0, i].imshow(tensors1[i], cmap='gray', vmax=max(tensors1[i].max() * 1e-3, tensors1[i].min()))
         ax[0, i].set_title(f"{titles[0]} {i}")
         ax[0, i].axis('off')
-        ax[1, i].imshow(tensors2[i], cmap='gray', vmax=tensors2[i].max() * 1e-3)
+        ax[1, i].imshow(tensors2[i], cmap='gray', vmax=max(tensors2[i].max() * 1e-3, tensors2[i].min()))
         ax[1, i].set_title(f"{titles[1]} {i}")
         ax[1, i].axis('off')
     plt.tight_layout()

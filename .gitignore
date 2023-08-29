@@ -1,3 +1,4 @@
 # ignore all files in the __pycache__ directory
 __pycache__/
 lightning_logs/
+.ipynb_checkpoints/

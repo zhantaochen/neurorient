@@ -7,6 +7,8 @@ import torch.nn as nn
 import e3nn
 from e3nn import o3
 import warnings
+import torchvision.models.resnet as resnet
+from pytorch3d.transforms import rotation_6d_to_matrix
 
 from .encoders.encoders import ImageEncoder, SteerableCNN
 from .encoders.e2wrn import Wide_ResNet
@@ -45,7 +47,7 @@ class BaseSO3Predictor(nn.Module):
             self.encoder = SteerableCNN(input_shape=encoder_input_shape)
         elif encoder.find('e2wrn') > -1:
             self.encoder = Wide_ResNet(
-                16, 2, 0.0, num_classes=-1, initial_stride=1, N=8, f=False, r=0
+                16, 1, 0.0, num_classes=-1, initial_stride=1, N=8, f=False, r=0
             ) 
 
         dummy_input = torch.zeros((1,) + tuple(encoder_input_shape))
@@ -55,6 +57,23 @@ class BaseSO3Predictor(nn.Module):
         torch.save(self.state_dict(), path)
 
 
+class ResNet2Rotmat(nn.Module):
+    def __init__(self, size=50, pretrained=False, pool_features=False):
+        super().__init__()
+        weights = 'DEFAULT' if pretrained else None
+        self.resnet = eval(f'resnet.resnet{size}')(weights=weights)
+
+        # remove pool and linear
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 6)
+        
+    
+    def forward(self, img):
+        if img.shape[1] == 1:
+            img = img.repeat(1, 3, 1, 1)
+        embed = self.resnet(img)
+        rotmat = rotation_6d_to_matrix(embed)
+        return rotmat
+        
 class I2S(BaseSO3Predictor):
     def __init__(self,
                  num_classes: int=1,
