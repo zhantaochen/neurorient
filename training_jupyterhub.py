@@ -1,35 +1,18 @@
 # %%
+
 import torch
 import matplotlib.pyplot as plt
 from neurorient import NeurOrient
 
-from neurorient.utils_model import get_radial_profile
-
 # %%
-pdb = '3IZN'
-poisson = True
-num_images = 10000
-increase_factor = 10
+pdb = '1BXR'
 
-spi_data = torch.load(
-    f'/pscratch/sd/z/zhantao/neurorient_repo/data/{pdb}_increase{increase_factor}_poisson{poisson}_num{num_images//1000}K.pt')
+spi_data = torch.load(f'/pscratch/sd/z/zhantao/neurorient_repo/data/{pdb}_increase10_poissonFalse_num10K.pt')
 model_dir = '/pscratch/sd/z/zhantao/neurorient_repo/model'
 print(spi_data.keys())
 
 # %%
-q_values, radial_profile = get_radial_profile(
-    spi_data['intensities'], 
-    spi_data['pixel_position_reciprocal'])
-
-# %%
-radial_scale_configs = {
-    "q_values": q_values,
-    "radial_profile": radial_profile,
-    "alpha": 1.0
-}
-
-# %%
-model = NeurOrient(spi_data['pixel_position_reciprocal'], volume_type='intensity', path=model_dir, loss_type='mse', radial_scale_configs=radial_scale_configs, lr=1e-3)
+model = NeurOrient(spi_data['pixel_position_reciprocal'], volume_type='intensity', path=model_dir, loss_type='mse', lr=2e-3)
 # model = NeurOrient.load_from_checkpoint('/pscratch/sd/z/zhantao/neurorient_repo/model/lightning_logs/version_14651494/checkpoints/1BXR-epoch=857-step=17150.ckpt')
 # model.to('cpu');
 
@@ -41,8 +24,8 @@ from torch.utils.data import TensorDataset
 from torch.utils.data import DataLoader
 
 # %%
-dataset = TensorDataset(spi_data['intensities'].unsqueeze(1))
-dataloader = DataLoader(dataset, batch_size=100, shuffle=True)
+dataset = TensorDataset(spi_data['intensities'].unsqueeze(1)[:1000])
+dataloader = DataLoader(dataset, batch_size=50, shuffle=True)
 
 # %%
 # batch = next(iter(dataloader))

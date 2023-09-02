@@ -10,13 +10,14 @@ from .external.siren_pytorch import SirenNet
 from .reconstruction.slicing import get_real_mesh, get_reciprocal_mesh, gen_nonuniform_normalized_positions
 from .utils_visualization import display_volumes, display_images_in_parallel
 
+from .utils_model import get_radial_scale_mask
+
 class IntensityNet(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__()
-        # self.net_exp = SirenNet(
-        #     *args, **kwargs)
-        self.net_mag = SirenNet(
-            *args, **kwargs, final_activation=torch.nn.ReLU())
+        # self.net_exp = SirenNet(*args, **kwargs, final_activation=torch.nn.Identity())
+        self.net_mag = SirenNet(*args, **kwargs, final_activation=torch.nn.SiLU())
+        # self.net_mag = SirenNet(*args, **kwargs)
     
     def forward(self, x):
         return self.net_mag(x) + self.net_mag(-x)
@@ -28,7 +29,14 @@ class IntensityNet(nn.Module):
 
 
 class NeurOrient(L.LightningModule):
-    def __init__(self, pixel_position_reciprocal, volume_type='real_neural', over_sampling=1, path=None):
+    def __init__(self, 
+                 pixel_position_reciprocal, 
+                 volume_type='real_neural', 
+                 over_sampling=1, 
+                 loss_type='poisson', 
+                 radial_scale_configs=None,
+                 lr=1e-3, 
+                 path=None):
         super().__init__()
         self.save_hyperparameters()
 
@@ -58,7 +66,7 @@ class NeurOrient(L.LightningModule):
         if self.volume_type.find('intensity') >= -1:
             self.volume_predictor = IntensityNet(
                 dim_in=3,
-                dim_hidden=512,
+                dim_hidden=256,
                 dim_out=1,
                 num_layers=5,
             )
@@ -71,7 +79,27 @@ class NeurOrient(L.LightningModule):
                 final_activation=torch.nn.ReLU(),
             )
         self.nufft_forward = KbNufft(im_size=(self.image_dimension,)*3)
+        
+        self.radial_scale_configs = radial_scale_configs
+        if self.radial_scale_configs is None:
+            self.register_buffer('radial_scale_factor', torch.ones(1, 1, (self.image_dimension,)*2))
+        else:
+            _mask = get_radial_scale_mask(
+                self.radial_scale_configs['q_values'], 
+                self.radial_scale_configs['radial_profile'], 
+                self.pixel_position_reciprocal.detach().cpu(), self.radial_scale_configs['alpha'])
+            self.register_buffer('radial_scale_factor', torch.from_numpy(_mask).unsqueeze(0))
+        
+        self.loss_type = loss_type
+        if loss_type == 'poisson':
+            # self.volume_predictor.net_mag.last_layer.activation = torch.nn.Identity()
+            self.loss_func = nn.PoissonNLLLoss(log_input=True)
+        elif loss_type == 'mse':
+            self.loss_func = nn.MSELoss()
+        
+        self.lr = lr
         self.path = path
+        
             
     def image_to_orientation(self, x):
         if isinstance(self.orientation_predictor, I2S):
@@ -99,8 +127,8 @@ class NeurOrient(L.LightningModule):
     def predict_slice(self, grid_position_reciprocal):
         if grid_position_reciprocal.ndim == 2 and grid_position_reciprocal.shape[0] == 3:
             grid_position_reciprocal = grid_position_reciprocal.T
-        slice = self.volume_predictor(grid_position_reciprocal)
-        return slice
+        slices = self.volume_predictor(grid_position_reciprocal)
+        return slices
     
     def compute_autocorrelation(self, rho=None, pred_from_scratch=True, return_volume=False):
         """
@@ -143,9 +171,12 @@ class NeurOrient(L.LightningModule):
         
         slices_true = batch[0].to(self.device)
         
-        slices_target = torch.log(1 + slices_true)
+        # slices_input = torch.log(slices_true + torch.finfo(slices_true.dtype).eps)
+        # slices_input = torch.log(slices_true * 10 + 1)
+        slices_input = torch.log(slices_true * 10 + 1.)
+
         # predict orientations from images
-        orientations = self.image_to_orientation(slices_target)
+        orientations = self.image_to_orientation(slices_input)
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
         HKL = gen_nonuniform_normalized_positions(
@@ -162,12 +193,16 @@ class NeurOrient(L.LightningModule):
         # slices_mags = slices_true.abs().amax(dim=(-2, -1), keepdim=True)
         # slices_pred = slices_mags * slices_pred / (slices_pred.abs().amax(dim=(-2, -1), keepdim=True) + torch.finfo(self.dtype).eps)
         
-        loss = nn.functional.mse_loss(slices_pred.cpu(), slices_target.cpu())
+        # loss = nn.functional.mse_loss(slices_pred.cpu(), slices_input.cpu())
+        if self.loss_type == 'poisson':
+            loss = self.loss_func(slices_pred.cpu(), slices_true.cpu())
+        elif self.loss_type == 'mse':
+            loss = self.loss_func(slices_pred.cpu(), slices_input.cpu())
         self.log("train_loss", loss)
         
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
-            display_images_in_parallel(torch.exp(slices_pred) - 1, slices_true, save_to=f'{self.path}/slices_.png')
+            display_images_in_parallel((torch.exp(slices_pred) - 1) / 10, slices_true, save_to=f'{self.path}/slices_version_{self.logger.version}.png')
         
         return loss
 
@@ -192,6 +227,7 @@ class NeurOrient(L.LightningModule):
         display_images_in_parallel(slices_pred, slices_true, save_to=f'{self.path}/slices.png')
         
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=1e-3)
-        # scheculer = optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1e-4 + 9e-4 * np.exp(- epoch / 25))
+        optimizer = optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
+        # scheculer = optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1e-4 + 9e-4 * np.exp(- epoch / 25))
+        # return [optimizer], [scheculer]

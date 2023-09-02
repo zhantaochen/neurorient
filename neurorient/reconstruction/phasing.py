@@ -24,7 +24,7 @@ def center_of_mass(rho_, hkl_, M):
     """
     rho_ = torch.abs(rho_)
     num = torch.sum(rho_ * hkl_, dim=(1, 2, 3))
-    den = rho_.sum()
+    den = rho_.sum() + torch.finfo(rho_.dtype).eps
     return torch.round(num / den * M / 2)
 
 def recenter(rho_, support_, M):
@@ -39,7 +39,7 @@ def recenter(rho_, support_, M):
     ls = (ls[:-1] + ls[1:]) / 2
 
     hkl_list = torch.meshgrid(ls, ls, ls)
-    hkl_ = torch.stack([torch.fft.fftshift(coord) for coord in hkl_list])
+    hkl_ = torch.stack([torch.fft.fftshift(coord).to(rho_) for coord in hkl_list])
     vect = center_of_mass(rho_, hkl_, M)
 
     for i in range(3):
@@ -157,28 +157,34 @@ class PhaseRetriever:
     def phase(self, amplitude, rho=None, rho_max=torch.inf):
         
         device = amplitude.device
+        amplitude_ = torch.fft.ifftshift(amplitude).detach()
         
         M = amplitude.shape[-1]
         amp_mask_ = torch.ones((M,)*3).to(torch.bool).to(device)
         if self.support is None:
-            support_ = create_support_(amplitude, M).to(device)
+            support_ = create_support_(amplitude_, M).to(device)
         else:
             support_ = torch.fft.ifftshift(self.support).to(device)
             
         if rho is None:
             rho_ = torch.rand((M,)*3).to(device)
         else:
-            rho_ = torch.fft.ifftshift(rho).to(device)
+            rho_ = torch.fft.ifftshift(rho).detach().to(device)
         
-        for i in tqdm(range(self.n_phase_loops), desc="Phase Retrieval"):
-            rho_ = self.ER_loop(self.nER, rho_, amplitude, amp_mask_, support_, rho_max)
-            rho_ = self.HIO_loop(self.nHIO, self.beta, rho_, amplitude, amp_mask_, support_, rho_max)
-            rho_ = self.ER_loop(self.nER, rho_, amplitude, amp_mask_, support_, rho_max)
-            support_ = shrink_wrap(1, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=0.05)
-            rho_, support_ = recenter(rho_, support_, M)
-        rho_ = self.HIO_loop(self.nHIO, self.beta, rho_, amplitude, amp_mask_, support_, rho_max)
+        with torch.no_grad():
+            for i in tqdm(range(self.n_phase_loops), desc="Phase Retrieval"):
+                rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
+                rho_ = rho_.clip_(0.)
+                rho_ = self.HIO_loop(self.nHIO, self.beta, rho_, amplitude_, amp_mask_, support_, rho_max)
+                rho_ = rho_.clip_(0.)
+                rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
+                rho_ = rho_.clip_(0.)
+                support_ = shrink_wrap(1, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=0.05)
+                rho_, support_ = recenter(rho_, support_, M)
+            rho_ = self.HIO_loop(self.nHIO, self.beta, rho_, amplitude_, amp_mask_, support_, rho_max)
+            rho_ = rho_.clip_(0.)
         
-        rho_, support_ = recenter(rho_, support_, M)
+        rho_, support_ = recenter(torch.nan_to_num(rho_), support_, M)
         rho_phased = torch.fft.fftshift(rho_)
         support_phased = torch.fft.fftshift(support_)
         
