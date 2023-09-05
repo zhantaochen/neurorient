@@ -6,7 +6,7 @@ from neurorient import NeurOrient
 from neurorient.utils_model import get_radial_profile
 
 # %%
-pdb = '3IZN'
+pdb = '6E5B'
 poisson = True
 num_images = 10000
 increase_factor = 10
@@ -29,7 +29,10 @@ radial_scale_configs = {
 }
 
 # %%
-model = NeurOrient(spi_data['pixel_position_reciprocal'], volume_type='intensity', path=model_dir, loss_type='mse', radial_scale_configs=radial_scale_configs, lr=1e-3)
+model = NeurOrient(
+    spi_data['pixel_position_reciprocal'], volume_type='intensity', path=model_dir, 
+    loss_type='mse', radial_scale_configs=radial_scale_configs, lr=1e-3,
+    photons_per_pulse=1e12 * increase_factor)
 # model = NeurOrient.load_from_checkpoint('/pscratch/sd/z/zhantao/neurorient_repo/model/lightning_logs/version_14651494/checkpoints/1BXR-epoch=857-step=17150.ckpt')
 # model.to('cpu');
 
