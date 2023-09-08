@@ -16,7 +16,7 @@ class IntensityNet(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__()
         # self.net_exp = SirenNet(*args, **kwargs, final_activation=torch.nn.Identity())
-        self.net_mag = SirenNet(*args, **kwargs, final_activation=torch.nn.SiLU())
+        self.net_mag = SirenNet(*args, **kwargs)
         # self.net_mag = SirenNet(*args, **kwargs)
     
     def forward(self, x):
@@ -35,7 +35,8 @@ class NeurOrient(L.LightningModule):
                  over_sampling=1, 
                  loss_type='poisson', 
                  radial_scale_configs=None,
-                 lr=1e-3, 
+                 lr=1e-3,
+                 photons_per_pulse=1e13,
                  path=None):
         super().__init__()
         self.save_hyperparameters()
@@ -62,6 +63,14 @@ class NeurOrient(L.LightningModule):
             size=18, pretrained=True, pool_features=False
         )
         
+        # setup loss function
+        self.loss_type = loss_type
+        if loss_type == 'poisson':
+            self.loss_func = nn.PoissonNLLLoss(log_input=True)
+        elif loss_type == 'mse':
+            self.loss_func = nn.MSELoss()
+        
+        # setup volume predictor
         self.volume_type = volume_type
         if self.volume_type.find('intensity') >= -1:
             self.volume_predictor = IntensityNet(
@@ -69,6 +78,7 @@ class NeurOrient(L.LightningModule):
                 dim_hidden=256,
                 dim_out=1,
                 num_layers=5,
+                final_activation=torch.nn.SiLU() if self.loss_type == 'mse' else (torch.nn.Identity() if self.loss_type == 'poisson' else None),
             )
         else:
             self.volume_predictor = SirenNet(
@@ -90,16 +100,11 @@ class NeurOrient(L.LightningModule):
                 self.pixel_position_reciprocal.detach().cpu(), self.radial_scale_configs['alpha'])
             self.register_buffer('radial_scale_factor', torch.from_numpy(_mask).unsqueeze(0))
         
-        self.loss_type = loss_type
-        if loss_type == 'poisson':
-            # self.volume_predictor.net_mag.last_layer.activation = torch.nn.Identity()
-            self.loss_func = nn.PoissonNLLLoss(log_input=True)
-        elif loss_type == 'mse':
-            self.loss_func = nn.MSELoss()
-        
         self.lr = lr
         self.path = path
         
+        self.photons_per_pulse = photons_per_pulse
+        self.loss_scale_factor = 1e14 / self.photons_per_pulse
             
     def image_to_orientation(self, x):
         if isinstance(self.orientation_predictor, I2S):
@@ -173,7 +178,7 @@ class NeurOrient(L.LightningModule):
         
         # slices_input = torch.log(slices_true + torch.finfo(slices_true.dtype).eps)
         # slices_input = torch.log(slices_true * 10 + 1)
-        slices_input = torch.log(slices_true * 10 + 1.)
+        slices_input = torch.log(slices_true * self.loss_scale_factor + 1.)
 
         # predict orientations from images
         orientations = self.image_to_orientation(slices_input)
@@ -195,14 +200,18 @@ class NeurOrient(L.LightningModule):
         
         # loss = nn.functional.mse_loss(slices_pred.cpu(), slices_input.cpu())
         if self.loss_type == 'poisson':
-            loss = self.loss_func(slices_pred.cpu(), slices_true.cpu())
+            loss = self.loss_func(slices_pred.cpu(), slices_true.cpu()) + 1e-3 * torch.nn.functional.mse_loss(slices_pred.exp().cpu(), slices_true.cpu())
         elif self.loss_type == 'mse':
             loss = self.loss_func(slices_pred.cpu(), slices_input.cpu())
         self.log("train_loss", loss)
         
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
-            display_images_in_parallel((torch.exp(slices_pred) - 1) / 10, slices_true, save_to=f'{self.path}/slices_version_{self.logger.version}.png')
+            if self.loss_type == 'poisson':
+                slice_disp = torch.exp(slices_pred)
+            elif self.loss_type == 'mse':
+                slice_disp = (torch.exp(slices_pred) - 1) / self.loss_scale_factor
+            display_images_in_parallel(slice_disp, slices_true, save_to=f'{self.path}/slices_version_{self.logger.version}.png')
         
         return loss
 
