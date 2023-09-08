@@ -13,8 +13,8 @@ from pytorch3d.transforms import rotation_6d_to_matrix
 from .encoders.encoders import ImageEncoder, SteerableCNN
 from .encoders.e2wrn import Wide_ResNet
 
-from .external.image2sphere import so3_utils
-from .external.image2sphere import (
+from .external.image2sphere.src import so3_utils
+from .external.image2sphere.src.models import (
     SpatialS2Projector,
     HarmonicS2Projector,
     SpatialS2Features,
