@@ -6,10 +6,10 @@ from neurorient import NeurOrient
 from neurorient.utils_model import get_radial_profile
 
 # %%
-pdb = '6E5B'
+pdb = '5BWK'
 poisson = True
 num_images = 10000
-increase_factor = 10
+increase_factor = 100
 
 spi_data = torch.load(
     f'/pscratch/sd/z/zhantao/neurorient_repo/data/{pdb}_increase{increase_factor}_poisson{poisson}_num{num_images//1000}K.pt')

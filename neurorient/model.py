@@ -1,6 +1,8 @@
 import torch
 from torch import nn, optim
 
+import os
+
 import lightning as L
 import numpy as np
 from torchkbnufft import KbNufft
@@ -31,7 +33,7 @@ class IntensityNet(nn.Module):
 class NeurOrient(L.LightningModule):
     def __init__(self, 
                  pixel_position_reciprocal, 
-                 volume_type='real_neural', 
+                 volume_type='intensity', 
                  over_sampling=1, 
                  loss_type='poisson', 
                  radial_scale_configs=None,
@@ -72,7 +74,7 @@ class NeurOrient(L.LightningModule):
         
         # setup volume predictor
         self.volume_type = volume_type
-        if self.volume_type.find('intensity') >= -1:
+        if self.volume_type == 'intensity':
             self.volume_predictor = IntensityNet(
                 dim_in=3,
                 dim_hidden=256,
@@ -80,14 +82,20 @@ class NeurOrient(L.LightningModule):
                 num_layers=5,
                 final_activation=torch.nn.SiLU() if self.loss_type == 'mse' else (torch.nn.Identity() if self.loss_type == 'poisson' else None),
             )
-        else:
-            self.volume_predictor = SirenNet(
-                dim_in=3,
-                dim_hidden=512,
-                dim_out=1,
-                num_layers=5,
-                final_activation=torch.nn.ReLU(),
-            )
+        elif self.volume_type == 'electron_density':
+            print('testing')
+            # self.volume_predictor = SirenNet(
+            #     dim_in=3,
+            #     dim_hidden=128,
+            #     dim_out=1,
+            #     num_layers=5,
+            #     final_activation=torch.nn.SiLU(),
+            # )
+            self.register_parameter('rho', nn.Parameter(torch.rand((self.image_dimension,)*3)))
+            def volume_predictor(grid_position_real):
+                return self.rho.clip(0.)
+            self.volume_predictor = volume_predictor
+            
         self.nufft_forward = KbNufft(im_size=(self.image_dimension,)*3)
         
         self.radial_scale_configs = radial_scale_configs
@@ -114,11 +122,17 @@ class NeurOrient(L.LightningModule):
             rotmats = self.orientation_predictor(x)
         return rotmats
     
+    # def predict_rho(self, grid_position_real):
+    #     original_device = grid_position_real.device
+    #     self.volume_predictor.to('cpu')
+    #     if grid_position_real.ndim == 4:
+    #         grid_position_real = grid_position_real.view(-1, 3).cpu()
+    #     rho = self.volume_predictor(grid_position_real).view((self.image_dimension,)*3)
+    #     self.volume_predictor.to(original_device)
+    #     return rho.to(original_device)
+    
     def predict_rho(self, grid_position_real):
-        if grid_position_real.ndim == 4:
-            grid_position_real = grid_position_real.view(-1, 3)
-        rho = self.volume_predictor(grid_position_real).view((self.image_dimension,)*3)
-        return rho
+        return self.rho.clip(0.)
     
     def predict_intensity(self, grid_position_reciprocal):
         if grid_position_reciprocal.ndim == 4 and grid_position_reciprocal.shape[-1] == 3:
@@ -173,6 +187,52 @@ class NeurOrient(L.LightningModule):
         return model_slices
     
     def training_step(self, batch, batch_idx):
+        if self.volume_type == 'intensity':
+            return self.training_step_intensity(batch, batch_idx)
+        elif self.volume_type == 'electron_density':
+            return self.training_step_electron_density(batch, batch_idx)
+    
+    
+    def training_step_electron_density(self, batch, batch_idx):
+        
+        slices_true = batch[0].to(self.device)
+        
+        slices_input = torch.log(slices_true * self.loss_scale_factor + 1.)
+
+        # predict orientations from images
+        orientations = self.image_to_orientation(slices_input)        
+        # predict autocorrelation with orientations and predicted rho
+        ac, rho = self.compute_autocorrelation(return_volume=True)
+        # predict slices with orientations and predicted autocorrelation
+        slices_pred = self.gen_slices(ac, orientations).unsqueeze(1)
+        
+        # scale slices_true and slices_pred
+        # slices_mags = slices_true.abs().amax(dim=(-2, -1), keepdim=True)
+        # slices_pred = slices_mags * slices_pred / (slices_pred.abs().amax(dim=(-2, -1), keepdim=True) + torch.finfo(self.dtype).eps)
+        
+        # loss = nn.functional.mse_loss(slices_pred.cpu(), slices_input.cpu())
+        if self.loss_type == 'poisson':
+            loss = self.loss_func(slices_pred.cpu(), slices_true.cpu()) + 1e-3 * torch.nn.functional.mse_loss(slices_pred.exp().cpu(), slices_true.cpu())
+        elif self.loss_type == 'mse':
+            loss = self.loss_func(slices_pred.cpu(), slices_input.cpu())
+        self.log("train_loss", loss)
+        
+        # display_volumes(rho, save_to=f'{self.path}/rho.png')
+        if self.global_step % 10 == 0:
+            max_num_slices = min(32, slices_true.shape[0])
+            if self.loss_type == 'poisson':
+                slice_disp = torch.exp(slices_pred)
+            elif self.loss_type == 'mse':
+                slice_disp = (torch.exp(slices_pred) - 1) / self.loss_scale_factor
+            out_path = os.path.join(self.path, 'figures')
+            if not os.path.exists(out_path):
+                os.makedirs(out_path)
+            display_images_in_parallel(slice_disp[:max_num_slices], slices_true[:max_num_slices], save_to=os.path.join(out_path, f'slices_version_{self.logger.version}.png'))
+            display_volumes(rho, save_to=os.path.join(out_path, f'rho_version_{self.logger.version}.png'))
+            
+        return loss
+    
+    def training_step_intensity(self, batch, batch_idx):
         
         slices_true = batch[0].to(self.device)
         
