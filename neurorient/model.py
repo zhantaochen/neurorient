@@ -22,7 +22,6 @@ class ResNet2RotMat(nn.Module):
         super().__init__()
         weights = 'DEFAULT' if pretrained else None
         self.resnet = eval(f'resnet.resnet{size}')(weights=weights)
-
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 6)
     
     def forward(self, img):
@@ -40,13 +39,22 @@ class IntensityNet(nn.Module):
     def forward(self, x):
         return self.net_mag(x) + self.net_mag(-x)
     
+# class PhaseNet(nn.Module):
+#     def __init__(self, *args, **kwargs):
+#         super().__init__()
+#         self.net_phase = SirenNet(*args, **kwargs)
+    
+#     def forward(self, x):
+#         return self.net_phase(x) - self.net_phase(-x)
+    
 class NeurOrient(L.LightningModule):
     def __init__(self, 
                  pixel_position_reciprocal, 
                  over_sampling=1, 
                  radial_scale_configs=None,
-                 lr=1e-3,
                  photons_per_pulse=1e13,
+                 lr=1e-3,
+                 weight_decay=1e-4,
                  path=None):
         super().__init__()
         self.save_hyperparameters()
@@ -93,6 +101,7 @@ class NeurOrient(L.LightningModule):
             self.register_buffer('radial_scale_factor', torch.from_numpy(_mask).unsqueeze(0))
         
         self.lr = lr
+        self.weight_decay = weight_decay
         self.path = path
         os.makedirs(self.path, exist_ok=True)
         self.fig_path = os.path.join(self.path, 'figures')
@@ -149,11 +158,12 @@ class NeurOrient(L.LightningModule):
         slices_pred = self.predict_slice(HKL).view((-1, 1,) + (self.image_dimension,)*2)
         
         loss = self.loss_func(slices_pred.cpu(), slices_input.cpu())
-        self.log("train_loss", loss)
+        self.log("train_loss", loss.item())
         
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
-            slice_disp = (torch.exp(slices_pred) - 1) / self.loss_scale_factor
+            num_figs = min(10, slices_true.shape[0])
+            slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.loss_scale_factor
             display_images_in_parallel(slice_disp, slices_true, save_to=f'{self.fig_path}/slices_version_{self.logger.version}.png')
         
         return loss
@@ -173,16 +183,28 @@ class NeurOrient(L.LightningModule):
         slices_pred = self.predict_slice(HKL).view((-1, 1,) + (self.image_dimension,)*2)
         
         loss = self.loss_func(slices_pred.cpu(), slices_input.cpu())
-        self.log("val_loss", loss)
+        self.log("val_loss", loss.item())
         
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
-            slice_disp = (torch.exp(slices_pred) - 1) / self.loss_scale_factor
+            num_figs = min(10, slices_true.shape[0])
+            slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.loss_scale_factor
             display_images_in_parallel(slice_disp, slices_true, save_to=f'{self.fig_path}/slices_version_{self.logger.version}.png')
         
         
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        # optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
+        #                                                  mode           = 'min',
+        #                                                  factor         = 2e-1,
+        #                                                  patience       = 10,
+        #                                                  threshold      = 1e-4,
+        #                                                  threshold_mode ='rel',
+        #                                                  verbose        = True,
+        #                                                  min_lr         = 1e-6
+        #                                                 )
+        # return {'optimizer': optimizer,
+        #         'scheduler': scheduler,
+        #         'monitor': 'val_loss'}
+        optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         return optimizer
-        # scheculer = optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1e-4 + 9e-4 * np.exp(- epoch / 25))
-        # return [optimizer], [scheculer]

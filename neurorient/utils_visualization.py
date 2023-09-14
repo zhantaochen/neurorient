@@ -3,9 +3,12 @@ import numpy as np
 import torch
 
 import mrcfile
+from .utils_transform import convert_to_numpy
 
 def save_mrc(output, data, voxel_size=None, header_origin=None):
     """
+    taken from Spinifel
+    
     Save numpy array as an MRC file.
 
     Parameters
@@ -90,29 +93,63 @@ def display_images_in_parallel(
     if closefig:
         plt.close(fig)
 
-def display_volumes(volumes, ax=None, save_to=None, closefig=True):
-    if volumes.ndim == 3:
-        dim1, dim2, dim3 = volumes.shape
-        volumes = [volumes.detach().cpu().numpy() if torch.is_tensor(volumes) else np.array(volumes)]
-    elif volumes.ndim == 4:
-        dim1, dim2, dim3 = volumes.shape[1:]
-        volumes = [v.detach().cpu().numpy() if torch.is_tensor(v) else np.array(v) for v in volumes]
-        
+def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None):
+
+    if isinstance(volumes, list):
+        volumes = [convert_to_numpy(v) for v in volumes]
+    else:
+        volumes = [convert_to_numpy(volumes)]
+
     N = len(volumes)
     if ax is None:
-        fig, ax = plt.subplots(3, N, figsize=(3 * N, 9.5))
+        fig, ax = plt.subplots(N, 3, figsize=(9.5, 3 * N))
     if N == 1:
-        ax[0].imshow(volumes[0][dim1//2,:,:], cmap='gray')
-        ax[1].imshow(volumes[0][:,dim2//2,:], cmap='gray')
-        ax[2].imshow(volumes[0][:,:,dim3//2], cmap='gray')
+        dim1, dim2, dim3 = volumes[0].shape
+        ax[0].imshow(volumes[0][dim1//2,:,:], cmap=cmap, vmin=vmin, vmax=vmax)
+        ax[1].imshow(volumes[0][:,dim2//2,:], cmap=cmap, vmin=vmin, vmax=vmax)
+        ax[2].imshow(volumes[0][:,:,dim3//2], cmap=cmap, vmin=vmin, vmax=vmax)
     else:
         for i in range(N):
-            ax[0, i].imshow(volumes[i][dim1//2,:,:], cmap='gray')
-            ax[1, i].imshow(volumes[i][:,dim2//2,:], cmap='gray')
-            ax[2, i].imshow(volumes[i][:,:,dim3//2], cmap='gray')
+            dim1, dim2, dim3 = volumes[i].shape
+            ax[i,0].imshow(volumes[i][dim1//2,:,:], cmap=cmap, vmin=vmin, vmax=vmax)
+            ax[i,1].imshow(volumes[i][:,dim2//2,:], cmap=cmap, vmin=vmin, vmax=vmax)
+            ax[i,2].imshow(volumes[i][:,:,dim3//2], cmap=cmap, vmin=vmin, vmax=vmax)
     plt.tight_layout()
     # plt.show()
     if save_to is not None:
         fig.savefig(save_to, bbox_inches='tight')
     if closefig:
         plt.close(fig)
+
+# def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None):
+
+#     if isinstance(volumes, list):
+#         if isinstance(volumes[0], np.ndarray):
+#             volumes = np.stack(volumes)
+#         elif isinstance(volumes[0], torch.Tensor):
+#             volumes = torch.stack(volumes).detach().cpu().numpy()
+#     if volumes.ndim == 3:
+#         dim1, dim2, dim3 = volumes.shape
+#         volumes = [volumes.detach().cpu().numpy() if torch.is_tensor(volumes) else np.array(volumes)]
+#     elif volumes.ndim == 4:
+#         dim1, dim2, dim3 = volumes.shape[1:]
+#         volumes = [v.detach().cpu().numpy() if torch.is_tensor(v) else np.array(v) for v in volumes]
+        
+#     N = len(volumes)
+#     if ax is None:
+#         fig, ax = plt.subplots(N, 3, figsize=(9.5, 3 * N))
+#     if N == 1:
+#         ax[0].imshow(volumes[0][dim1//2,:,:], cmap=cmap, vmin=vmin, vmax=vmax)
+#         ax[1].imshow(volumes[0][:,dim2//2,:], cmap=cmap, vmin=vmin, vmax=vmax)
+#         ax[2].imshow(volumes[0][:,:,dim3//2], cmap=cmap, vmin=vmin, vmax=vmax)
+#     else:
+#         for i in range(N):
+#             ax[i,0].imshow(volumes[i][dim1//2,:,:], cmap=cmap, vmin=vmin, vmax=vmax)
+#             ax[i,1].imshow(volumes[i][:,dim2//2,:], cmap=cmap, vmin=vmin, vmax=vmax)
+#             ax[i,2].imshow(volumes[i][:,:,dim3//2], cmap=cmap, vmin=vmin, vmax=vmax)
+#     plt.tight_layout()
+#     # plt.show()
+#     if save_to is not None:
+#         fig.savefig(save_to, bbox_inches='tight')
+#     if closefig:
+#         plt.close(fig)

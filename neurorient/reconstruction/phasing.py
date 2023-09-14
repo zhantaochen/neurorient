@@ -40,12 +40,20 @@ def recenter(rho_, support_, M):
 
     hkl_list = torch.meshgrid(ls, ls, ls)
     hkl_ = torch.stack([torch.fft.fftshift(coord).to(rho_) for coord in hkl_list])
-    vect = center_of_mass(rho_, hkl_, M)
 
-    for i in range(3):
-        shift = int(vect[i].item())
-        rho_[:] = torch.roll(rho_, -shift, dims=i)
-        support_[:] = torch.roll(support_, -shift, dims=i)
+    k = 0
+    vect = torch.ones(3).to(rho_.device) * 3
+    while torch.any(vect.abs() > 2):
+        print(k, vect, torch.any(vect.abs() > 2))
+        vect = center_of_mass(rho_, hkl_, M)
+        print(k, vect, torch.any(vect > 2))
+        for i in range(3):
+            shift = int(vect[i].item())
+            rho_[:] = torch.roll(rho_, -shift, dims=i)
+            support_[:] = torch.roll(support_, -shift, dims=i)
+        k += 1
+        if k > 10:
+            break
     return rho_, support_
 
 def shrink_wrap(sigma, rho_, support_, method=None, weight=1.0, cutoff=0.05):

@@ -3,6 +3,32 @@ from pytorch3d.transforms import matrix_to_quaternion, quaternion_to_matrix
 import numpy
 import torch
 
+import cupy as xp
+
+def convert_to_cupy(x):
+    if isinstance(x, torch.Tensor):
+        return xp.array(x.detach().cpu().numpy())
+    elif isinstance(x, numpy.ndarray):
+        return xp.array(x)
+    else:
+        return x
+
+def convert_to_torch(x):
+    if isinstance(x, xp.ndarray):
+        return torch.from_numpy(x.get())
+    elif isinstance(x, numpy.ndarray):
+        return torch.from_numpy(x)
+    else:
+        return x
+    
+def convert_to_numpy(x):
+    if isinstance(x, xp.ndarray):
+        return x.get()
+    elif isinstance(x, torch.Tensor):
+        return x.detach().cpu().numpy()
+    else:
+        return x
+
 """
 taken from https://scikit-surgerycore.readthedocs.io/en/stable/_modules/sksurgerycore/algorithms/averagequaternions.html#average_quaternions
 """
