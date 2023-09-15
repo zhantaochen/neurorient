@@ -164,7 +164,7 @@ class NeurOrient(L.LightningModule):
         if self.global_step % 10 == 0:
             num_figs = min(10, slices_true.shape[0])
             slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.loss_scale_factor
-            display_images_in_parallel(slice_disp, slices_true, save_to=f'{self.fig_path}/slices_version_{self.logger.version}.png')
+            display_images_in_parallel(slice_disp, slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_train.png')
         
         return loss
 
@@ -189,7 +189,7 @@ class NeurOrient(L.LightningModule):
         if self.global_step % 10 == 0:
             num_figs = min(10, slices_true.shape[0])
             slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.loss_scale_factor
-            display_images_in_parallel(slice_disp, slices_true, save_to=f'{self.fig_path}/slices_version_{self.logger.version}.png')
+            display_images_in_parallel(slice_disp, slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_val.png')
         
         
     def configure_optimizers(self):

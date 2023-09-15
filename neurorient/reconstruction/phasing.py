@@ -44,9 +44,9 @@ def recenter(rho_, support_, M):
     k = 0
     vect = torch.ones(3).to(rho_.device) * 3
     while torch.any(vect.abs() > 2):
-        print(k, vect, torch.any(vect.abs() > 2))
+        # print(k, vect, torch.any(vect.abs() > 2))
         vect = center_of_mass(rho_, hkl_, M)
-        print(k, vect, torch.any(vect > 2))
+        # print(k, vect, torch.any(vect > 2))
         for i in range(3):
             shift = int(vect[i].item())
             rho_[:] = torch.roll(rho_, -shift, dims=i)
