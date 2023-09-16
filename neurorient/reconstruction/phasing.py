@@ -40,12 +40,20 @@ def recenter(rho_, support_, M):
 
     hkl_list = torch.meshgrid(ls, ls, ls)
     hkl_ = torch.stack([torch.fft.fftshift(coord).to(rho_) for coord in hkl_list])
-    vect = center_of_mass(rho_, hkl_, M)
 
-    for i in range(3):
-        shift = int(vect[i].item())
-        rho_[:] = torch.roll(rho_, -shift, dims=i)
-        support_[:] = torch.roll(support_, -shift, dims=i)
+    k = 0
+    vect = torch.ones(3).to(rho_.device) * 3
+    while torch.any(vect.abs() > 2):
+        # print(k, vect, torch.any(vect.abs() > 2))
+        vect = center_of_mass(rho_, hkl_, M)
+        # print(k, vect, torch.any(vect > 2))
+        for i in range(3):
+            shift = int(vect[i].item())
+            rho_[:] = torch.roll(rho_, -shift, dims=i)
+            support_[:] = torch.roll(support_, -shift, dims=i)
+        k += 1
+        if k > 10:
+            break
     return rho_, support_
 
 def shrink_wrap(sigma, rho_, support_, method=None, weight=1.0, cutoff=0.05):
@@ -72,11 +80,20 @@ def shrink_wrap(sigma, rho_, support_, method=None, weight=1.0, cutoff=0.05):
         method = "std"
     if method == "std":
         threshold = torch.std(rho_gauss_) * weight
+        support_[:] = rho_gauss_ > threshold
     elif method == "max":
         threshold = rho_abs_.max() * cutoff * weight
+        support_[:] = rho_gauss_ > threshold
+    elif method == "min_max":
+        threshold_low = rho_abs_.max() * cutoff
+        # support_[:] = rho_gauss_ > threshold_low
+        # threshold_high = torch.mean(rho_gauss_) + 3 * torch.std(rho_gauss_)
+        threshold_high = rho_abs_.max() * (1-cutoff)
+        support_[:] = torch.logical_and(
+            rho_gauss_ > threshold_low, rho_gauss_ < threshold_high
+        )
     else:
         raise ValueError(f"Invalid method: {method}. Options are 'std' or 'max'.")
-    support_[:] = rho_gauss_ > threshold
     
     return support_
 
@@ -104,6 +121,35 @@ def step_ER(rho_, amplitude_, amp_mask_, support_, rho_max):
     i_overmax = rho_mod_ > rho_max
     rho_[i_overmax] = rho_max
     return rho_
+
+def step_DM(beta, rho_, amplitude_, amp_mask_, support_, rho_max):
+    """
+    Perform Difference Map (DM) operation. The DM algorithm refines the solution by alternating between real and 
+    Fourier space constraints and nudging the solution towards an intersection of both constraints.
+
+    :param beta: DM constant
+    :param rho_: electron density estimate
+    :param amplitude_: amplitudes computed from the autocorrelation
+    :param amp_mask_: amplitude mask
+    :param support_: binary mask for object's support
+    :param rho_max: maximum permitted electron density value
+    """
+    # First, apply Fourier space constraint (P1) then real space constraint (P2)
+    rho_mod_1, _ = step_phase(rho_, amplitude_, amp_mask_, support_)
+
+    # Now, apply real space constraint (P2) then Fourier space constraint (P1)
+    rho_mod_2, _ = step_phase(torch.where(support_, rho_mod_1, rho_), amplitude_, amp_mask_, support_)
+
+    # DM update
+    rho_dm = rho_ + beta * (rho_mod_1 - rho_mod_2)
+
+    # Ensure the real-space constraints are satisfied
+    rho_[:] = torch.where(support_, rho_dm, 0)
+    i_overmax = rho_dm > rho_max
+    rho_[i_overmax] = rho_max
+    
+    return rho_
+
 
 
 def step_HIO(beta, rho_, amplitude_, amp_mask_, support_, rho_max):
@@ -136,11 +182,13 @@ def step_phase(rho_, amplitude_, amp_mask_, support_):
 
 class PhaseRetriever:
     
-    def __init__(self, n_phase_loops: int=10, nER: int=50, nHIO: int=25, beta: float=0.9, support=None, shrink_wrap_method: str=None) -> None:
+    def __init__(self, n_phase_loops: int=10, nER: int=50, nHIO: int=25, nDM: int=25, beta_HIO: float=0.9, beta_DM: float=1.0, support=None, shrink_wrap_method: str=None) -> None:
         self.n_phase_loops = n_phase_loops
         self.nER = nER
         self.nHIO = nHIO
-        self.beta = beta
+        self.nDM = nDM
+        self.beta_HIO = beta_HIO
+        self.beta_DM = beta_DM
         self.support = support 
         self.shrink_wrap_method = shrink_wrap_method
     
@@ -152,6 +200,11 @@ class PhaseRetriever:
     def HIO_loop(self, n_loops, beta, rho_, amplitude_, amp_mask_, support_, rho_max):
         for k in range(n_loops):
             rho_ = step_HIO(beta, rho_, amplitude_, amp_mask_, support_, rho_max)
+        return rho_
+    
+    def DM_loop(self, n_loops, beta, rho_, amplitude_, amp_mask_, support_, rho_max):
+        for k in range(n_loops):
+            rho_ = step_DM(beta, rho_, amplitude_, amp_mask_, support_, rho_max)
         return rho_
     
     def phase(self, amplitude, rho=None, rho_max=torch.inf):
@@ -175,15 +228,27 @@ class PhaseRetriever:
             for i in tqdm(range(self.n_phase_loops), desc="Phase Retrieval"):
                 rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
                 rho_ = rho_.clip_(0.)
-                rho_ = self.HIO_loop(self.nHIO, self.beta, rho_, amplitude_, amp_mask_, support_, rho_max)
+                rho_ = self.HIO_loop(self.nHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
                 rho_ = rho_.clip_(0.)
+                
+                rho_ = self.DM_loop(self.nDM, self.beta_DM, rho_, amplitude_, amp_mask_, support_, rho_max)
+                rho_ = rho_.clip_(0.)
+                
                 rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
                 rho_ = rho_.clip_(0.)
                 support_ = shrink_wrap(1, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=0.05)
                 rho_, support_ = recenter(rho_, support_, M)
-            rho_ = self.HIO_loop(self.nHIO, self.beta, rho_, amplitude_, amp_mask_, support_, rho_max)
+            
+            
+            rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
             rho_ = rho_.clip_(0.)
-        
+            
+            # rho_ = self.HIO_loop(self.nHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
+            # rho_ = rho_.clip_(0.)
+
+            # rho_ = self.DM_loop(self.nDM, self.beta_DM, rho_, amplitude_, amp_mask_, support_, rho_max)
+            # rho_ = rho_.clip_(0.)
+            
         rho_, support_ = recenter(torch.nan_to_num(rho_), support_, M)
         rho_phased = torch.fft.fftshift(rho_)
         support_phased = torch.fft.fftshift(support_)
