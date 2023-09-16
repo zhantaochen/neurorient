@@ -48,7 +48,7 @@ timestamp = init_logger(returns_timestamp = True)
 
 # [[[ DATASET ]]]
 # Load the source data...
-pdb             = '1BXR'
+pdb             = '7OK2'
 poisson         = True
 num_images      = 10000
 increase_factor = 10
@@ -71,20 +71,21 @@ random_patch = RandomPatch(num_patch    = num_patch,
                            var_patch_y  = var_patch_y,
                            var_patch_x  = var_patch_x,
                            returns_mask = returns_mask)
+## random_patch = None    # Janky inline workaround to turn off random patching
 transform_list = ( random_patch, )
 
 train_frac        = 0.7
 data              = spi_data['intensities']
 spi_data_train    = data[:int(len(data) * train_frac) ]
 spi_data_validate = data[ int(len(data) * train_frac):]
-dataset_train     = TensorDatasetWithTransform(spi_data_train.unsqueeze(1).numpy(), transform_list = transform_list)
+dataset_train     = TensorDatasetWithTransform(spi_data_train.unsqueeze(1).numpy(), transform_list = transform_list, uses_norm = False)
 dataloader_train  = torch.utils.data.DataLoader( dataset_train,
                                                  shuffle     = False,
                                                  pin_memory  = True,
                                                  batch_size  = size_batch,
                                                  num_workers = num_workers, )
 
-dataset_validate  = TensorDatasetWithTransform(spi_data_validate.unsqueeze(1).numpy(), transform_list = transform_list)
+dataset_validate  = TensorDatasetWithTransform(spi_data_validate.unsqueeze(1).numpy(), transform_list = transform_list, uses_norm = False)
 dataloader_validate = torch.utils.data.DataLoader( dataset_validate,
                                                    shuffle     = False,
                                                    pin_memory  = True,
@@ -171,9 +172,9 @@ for epoch in tqdm.tqdm(range(max_epochs)):
     batch_train = tqdm.tqdm(enumerate(dataloader_train), total = len(dataloader_train))
     for batch_idx, batch_entry in batch_train:
         # Unpack the batch entry and move them to device...
-        batch_input  = batch_entry[0]    # target is input itself
+        batch_input, batch_target  = batch_entry
         batch_input  = batch_input.to(device, dtype = torch.float)
-        batch_target = batch_input
+        batch_target = batch_target.to(device, dtype = torch.float)
 
         # Forward, backward and update...
         if uses_mixed_precision:
@@ -223,23 +224,23 @@ for epoch in tqdm.tqdm(range(max_epochs)):
     batch_validate = tqdm.tqdm(enumerate(dataloader_validate), total = len(dataloader_validate))
     for batch_idx, batch_entry in batch_validate:
         # Unpack the batch entry and move them to device...
-        batch_input  = batch_entry[0]    # target is input itself
+        batch_input, batch_target  = batch_entry
         batch_input  = batch_input.to(device, dtype = torch.float)
-        batch_target = batch_input
+        batch_target = batch_target.to(device, dtype = torch.float)
 
         # Forward only...
         with torch.no_grad():
             if uses_mixed_precision:
                 with torch.cuda.amp.autocast(dtype = torch.float16):
                     # Forward pass...
-                    batch_output = model.forward_eval(batch_input)
+                    batch_output = model(batch_input)
 
                     # Calculate the loss...
                     loss = criterion(batch_output, batch_target)
                     loss = loss.mean()    # Collapse all losses if they are scattered on multiple gpus
             else:
                 # Forward pass...
-                batch_output = model.forward_eval(batch_input)
+                batch_output = model(batch_input)
 
                 # Calculate the loss...
                 loss = criterion(batch_output, batch_target)

@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=1BXR
+#SBATCH --job-name=7OK2
 #SBATCH --account lcls_g
 #SBATCH --constraint gpu
-#!SBATCH --qos debug
-#!SBATCH --time 00:29:00
-#SBATCH --qos regular
-#SBATCH --time 12:00:00
+#SBATCH --qos debug
+#SBATCH --time 00:29:00
+#!SBATCH --qos regular
+#!SBATCH --time 12:00:00
 #SBATCH --ntasks 1
 #SBATCH --ntasks-per-node 1
 #SBATCH --cpus-per-task 11
