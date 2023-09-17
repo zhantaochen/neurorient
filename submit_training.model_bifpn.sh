@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=7OK2
+#SBATCH --job-name=1BXR
 #SBATCH --account lcls_g
 #SBATCH --constraint gpu
-#SBATCH --qos debug
-#SBATCH --time 00:29:00
-#!SBATCH --qos regular
-#!SBATCH --time 12:00:00
+#!SBATCH --qos debug
+#!SBATCH --time 00:29:00
+#SBATCH --qos regular
+#SBATCH --time 12:00:00
 #SBATCH --ntasks 1
 #SBATCH --ntasks-per-node 1
 #SBATCH --cpus-per-task 11
@@ -20,6 +20,4 @@ export SLURM_CPU_BIND="cores"
 
 module load cray-mpich-abi
 
-python train.model_pytorch.py
-
-# perform any cleanup or short post-processing here
+python train.bifpn.py

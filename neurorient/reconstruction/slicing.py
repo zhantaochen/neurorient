@@ -48,15 +48,24 @@ def get_reciprocal_mesh(voxel_number_1d, max_reciprocal_value):
     return reciprocal_mesh
 
 def reciprocal_mesh_2_real_mesh(reciprocal_mesh):
-    recp_pts = reciprocal_mesh[:,0,0,0]
-    real_step_size = 1 / (recp_pts[1] - recp_pts[0]) / recp_pts.shape[0]
-    real_lin = torch.arange(recp_pts.shape[0]) * real_step_size
-    real_lin = (real_lin - real_lin.max() / 2) * 1e10
+    _lin = torch.linspace(-reciprocal_mesh.max(), reciprocal_mesh.max(), reciprocal_mesh.shape[0])
+    step = _lin[1] - _lin[0]
+    max_real_value = 1 / (2*step)
+    linspace = torch.linspace(-max_real_value, max_real_value, reciprocal_mesh.shape[0]) * 1e10
     real_mesh_stack = torch.stack(
-        torch.meshgrid(real_lin, real_lin, real_lin, indexing='ij'))
+            torch.meshgrid(linspace, linspace, linspace, indexing='ij'))
     real_mesh = torch.moveaxis(real_mesh_stack, 0, -1)
-    
     return real_mesh
+
+def real_mesh_2_reciprocal_mesh(real_mesh):
+    _lin = torch.linspace(-real_mesh.max(), real_mesh.max(), real_mesh.shape[0])
+    step = _lin[1] - _lin[0]
+    max_reciprocal_value = 1 / (2*step)
+    linspace = torch.linspace(-max_reciprocal_value, max_reciprocal_value, real_mesh.shape[0]) * 1e10
+    reciprocal_mesh_stack = torch.stack(
+            torch.meshgrid(linspace, linspace, linspace, indexing='ij'))
+    reciprocal_mesh = torch.moveaxis(reciprocal_mesh_stack, 0, -1)
+    return reciprocal_mesh
     
 def get_real_mesh(voxel_number_1d, max_reciprocal_value, return_reciprocal=False):
     """
