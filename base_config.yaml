@@ -1,0 +1,46 @@
+CHKPT:
+  TIMESTAMP_PREV  : null
+  EPOCH_PREV      : null
+  DIRECTORY       : chkpts
+  FILENAME_PREFIX : null
+
+DATASET:
+  PDB               : 1BXR
+  POISSON           : true
+  INCREASE_FACTOR   : 10
+  NUM_IMG           : 10000
+  FRAC_TRAIN        : 1.0
+  BATCH_SIZE        : 40
+  NUM_WORKERS       : 10
+  USES_RANDOM_PATCH : false
+
+MODEL:
+  BIFPN:
+    NUM_BLOCKS   : 1
+    NUM_FEATURES : 64
+  FREEZES_BACKBONE : false
+  USES_RANDOM_WEIGHTS : false
+
+LOSS:
+  SCALE_FACTOR : 10
+
+OPTIM:
+  LR           : 3e-4
+  WEIGHT_DECAY : 1e-4
+  GRAD_CLIP    : 1.0
+
+LR_SCHEDULER:
+  PATIENCE : 10
+
+DDP:
+  BACKEND                : nccl
+  USES_UNIQUE_WORLD_SEED : false
+
+LOGGING:
+  DIRECTORY       : logs
+  FILENAME_PREFIX : null
+
+MISC:
+  USES_MIXED_PRECISION : false
+  MAX_EPOCHS           : 1000
+  NUM_GPUS             : 2

@@ -18,6 +18,17 @@ from .utils_model import get_radial_scale_mask
 
 from .config import CONFIG
 
+class KbNufftRealView(KbNufft):
+    def __init__(self, im_size, grid_size = None):
+        super(KbNufftRealView, self).__init__(im_size, grid_size)
+
+        # Convert all buffers to real view
+        for name, buf in self.named_buffers():
+            if (buf.dtype != torch.complex128) and (buf.dtype != torch.complex64): continue
+            real_view_buf = torch.view_as_real(buf)
+            self.register_buffer(name, real_view_buf)
+
+
 class ResNet2RotMat(nn.Module):
     def __init__(self, size=50, pretrained=False):
         super().__init__()
@@ -53,8 +64,8 @@ class ResNet2RotMat(nn.Module):
         # Apply the BiFPN layer...
         bifpn_output_list = self.bifpn(bifpn_input_list)
 
-        # Use the -2-th feature maps for regression...
-        regressor_input = bifpn_output_list[-2]
+        # Use the N-th feature maps for regression...
+        regressor_input = bifpn_output_list[CONFIG.RESNET2ROTMAT.SCALE]
         B, C, H, W = regressor_input.shape
         regressor_input = regressor_input.view(B, C * H * W)
         logits = self.regressor_head(regressor_input)
@@ -86,6 +97,7 @@ class NeurOrient(nn.Module):
                  photons_per_pulse=1e13,
                  lr=1e-3,
                  weight_decay=1e-4,
+                 pretrained_backbone = True,
                  path=None):
         super().__init__()
 
@@ -103,7 +115,7 @@ class NeurOrient(nn.Module):
 
         self.over_sampling = over_sampling
         self.orientation_predictor = ResNet2RotMat(
-            size=CONFIG.BACKBONE.RES_TYPE, pretrained=True,
+            size=CONFIG.BACKBONE.RES_TYPE, pretrained=pretrained_backbone,
         )
 
         # setup volume predictor
@@ -115,7 +127,7 @@ class NeurOrient(nn.Module):
             final_activation=torch.nn.SiLU(),
         )
 
-        self.nufft_forward = KbNufft(im_size=(self.image_dimension,)*3)
+        self.nufft_forward = KbNufftRealView(im_size=(self.image_dimension,)*3)
 
         self.radial_scale_configs = radial_scale_configs
         if self.radial_scale_configs is None:
@@ -159,7 +171,9 @@ class NeurOrient(nn.Module):
         HKL = gen_nonuniform_normalized_positions(
             orientations, self.pixel_position_reciprocal, self.over_sampling)
         ac = ac.real + 0j
+        if ac.dtype == torch.complex128: ac = torch.view_as_real(ac)
         nuvect = self.nufft_forward(ac.unsqueeze(0).unsqueeze(0), HKL)[0,0]
+        if nuvect.dtype != torch.complex128: nuvect = torch.view_as_complex(nuvect)
         model_slices = nuvect.real.view((-1,) + (self.image_dimension,)*2)
         return model_slices
 
@@ -192,7 +206,7 @@ class NeurOrient(nn.Module):
     def forward(self, x):
         slices_true = x
 
-        slices_true = nn.functional.relu(slices_true * self.loss_scale_factor + 1.) + 1e-6 # Cutoff before log
+        slices_true = slices_true * self.loss_scale_factor + 1.
         slices_input = torch.log(slices_true)
 
         # predict orientations from images
