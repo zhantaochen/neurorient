@@ -33,25 +33,24 @@ def set_seed(seed):
 
 
 
-def init_logger(returns_timestamp = False):
+def init_logger(fl_prefix = None, drc_log = "logs", returns_timestamp = False):
     # Create a timestamp to name the log file...
     now = datetime.now()
     timestamp = now.strftime("%Y_%m%d_%H%M_%S")
 
-    # Configure the location to run the job...
-    drc_cwd = os.getcwd()
-
     # Set up the log file...
-    fl_log         = f"{timestamp}.train.log"
-    DRCLOG         = "logs"
-    prefixpath_log = os.path.join(drc_cwd, DRCLOG)
-    if not os.path.exists(prefixpath_log): os.makedirs(prefixpath_log)
-    path_log = os.path.join(prefixpath_log, fl_log)
+    # ...filename
+    fl_log = f"{timestamp}.log"
+    if fl_prefix is not None: fl_log = f"{fl_prefix}.{fl_log}"
+
+    # ...path
+    os.makedirs(drc_log, exist_ok = True)
+    path_log = os.path.join(drc_log, fl_log)
 
     # Config logging behaviors
     logging.basicConfig( filename = path_log,
                          filemode = 'w',
-                         format="%(asctime)s %(levelname)s %(name)-35s - %(message)s",
+                         format="%(asctime)s %(levelname)s %(name)s\n%(message)s",
                          datefmt="%m/%d/%Y %H:%M:%S",
                          level=logging.INFO, )
     logger = logging.getLogger(__name__)
@@ -399,43 +398,30 @@ def init_weights(module):
 
 
 
-class Configurator(dict):
-    __auto_create = False
+def print_layers(module, max_depth=1, current_indent_width=0, prints_module_name=True):
+    """
+    Recursively prints the layers of a PyTorch module.  (Keep printing child
+    element with a depth first search approach.)
 
-    def __getattr__(self, attr):
-        if attr not in self:
-            if self.__class__.__auto_create:
-                self[attr] = Configurator()
-            else:
-                raise AttributeError(
-                    f"'{type(self).__name__}' object has no attribute '{attr}'. "
-                    "If you're trying to auto-create attributes, consider using the 'enable_auto_create' context manager in a with-statement."
-                )
-        return self[attr]
+    Args:
+    - module (nn.Module): The current module or layer to print.
+    - current_indent_width (int): The current level of indentation for printing.
+    - prints_name (bool): Flag to determine if the name of the module should be printed.
+    """
 
+    def _print_current_layer(module, depth=0, current_indent_width=0, prints_module_name=True):
+        # Define a prefix based on current indent level
+        prefix = '  ' * current_indent_width
 
-    def __setattr__(self, attr, value):
-        if attr == "_Configurator__auto_create":  # Use name mangling for private attributes
-            raise AttributeError("'_auto_create' is read-only!")
-        self[attr] = value    # Using __setitem__ under the hood
+        # Print the name and type of the current module
+        if prints_module_name: print(f"{module.__class__.__name__}", end = "")
+        print()
 
+        # Check if the current module has children
+        # If it does, recursively print each child with an increased indentation level
+        if depth < max_depth and list(module.children()):
+            for name, child in module.named_children():
+                print(f"{prefix}- ({name}): ", end = "")
+                _print_current_layer(child, depth + 1, current_indent_width + 1, prints_module_name)
 
-    @contextmanager
-    def enable_auto_create(self):
-        original_state = self.__class__.__auto_create
-        self.__class__.__auto_create = True
-        try:
-            yield self
-        finally:
-            self.__class__.__auto_create = original_state
-
-
-    def to_dict(self):
-        result = {}
-        for key, value in self.items():
-            if isinstance(value, Configurator):
-                result[key] = value.to_dict()
-            else:
-                result[key] = value
-        return result
-
+    _print_current_layer(module, current_indent_width=current_indent_width, prints_module_name=prints_module_name)
