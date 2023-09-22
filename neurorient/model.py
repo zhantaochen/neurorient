@@ -16,6 +16,15 @@ from .utils_visualization import display_images_in_parallel
 
 from .utils_model import get_radial_scale_mask
 
+class KbNufftRealView(KbNufft):
+    def __init__(self, im_size, grid_size = None):
+        super(KbNufftRealView, self).__init__(im_size, grid_size)
+
+        # Convert all buffers to real view
+        for name, buf in self.named_buffers():
+            if (buf.dtype != torch.complex128) and (buf.dtype != torch.complex64): continue
+            real_view_buf = torch.view_as_real(buf)
+            self.register_buffer(name, real_view_buf)
 
 class ResNet2RotMat(nn.Module):
     def __init__(self, size=50, pretrained=False, pool_features=False):
@@ -88,7 +97,7 @@ class NeurOrient(L.LightningModule):
             final_activation=torch.nn.SiLU(),
         )
             
-        self.nufft_forward = KbNufft(im_size=(self.image_dimension,)*3)
+        self.nufft_forward = KbNufftRealView(im_size=(self.image_dimension,)*3)
         
         self.radial_scale_configs = radial_scale_configs
         if self.radial_scale_configs is None:
@@ -139,7 +148,9 @@ class NeurOrient(L.LightningModule):
         HKL = gen_nonuniform_normalized_positions(
             orientations, self.pixel_position_reciprocal, self.over_sampling)
         ac = ac.real + 0j
+        if ac.dtype == torch.complex128: ac = torch.view_as_real(ac)
         nuvect = self.nufft_forward(ac.unsqueeze(0).unsqueeze(0), HKL)[0,0]
+        if nuvect.dtype != torch.complex128: nuvect = torch.view_as_complex(nuvect)
         model_slices = nuvect.real.view((-1,) + (self.image_dimension,)*2)
         return model_slices
     
