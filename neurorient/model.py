@@ -143,6 +143,22 @@ class NeurOrient(L.LightningModule):
         model_slices = nuvect.real.view((-1,) + (self.image_dimension,)*2)
         return model_slices
     
+    def forward(self, slices, return_reconstruction=False):
+        slices_input = torch.log(slices * self.loss_scale_factor + 1.)
+        # predict orientations from images
+        orientations = self.image_to_orientation(slices_input)
+        if not return_reconstruction:
+            return orientations
+        else:
+            # get reciprocal positions based on orientations
+            # HKL has shape (3, num_qpts)
+            HKL = gen_nonuniform_normalized_positions(
+                orientations, self.pixel_position_reciprocal, self.over_sampling)
+            # predict slices from HKL
+            slices_pred = self.predict_slice(HKL).view((-1, 1,) + (self.image_dimension,)*2)
+            slices_pred = (torch.exp(slices_pred) - 1) / self.loss_scale_factor
+            return orientations, slices_pred
+
     def training_step(self, batch, batch_idx):
         slices_true = batch[0].to(self.device)
         

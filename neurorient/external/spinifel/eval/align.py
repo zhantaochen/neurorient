@@ -305,9 +305,9 @@ def align_volumes(
 
     if init_cc >= final_cc:
         print("Warning: CC decreased after alignment, returning original volume.")
-        return mrc1_original, mrc2_original, init_cc
+        return mrc1_original, mrc2_original, init_cc, xp.array([1., 0., 0., 0.])
     else:
-        return r_vol, mrc2_original, final_cc
+        return r_vol, mrc2_original, final_cc, opt_q
 
 # Work around for bug in cupy flip and its normalize axis indicies
 def flip(arr, orien):

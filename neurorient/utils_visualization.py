@@ -73,6 +73,7 @@ def display_images(images, columns, vmax=None):
     - images: A list of images. Each image should be of shape (b, b).
     - columns: Number of columns for displaying images.
     """
+    images = convert_to_numpy(images)
     N = len(images)
     rows = N // columns
     rows += N % columns
