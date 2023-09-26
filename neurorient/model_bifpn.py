@@ -246,18 +246,5 @@ class NeurOrient(nn.Module):
 
 
     def configure_optimizers(self):
-        # optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
-        #                                                  mode           = 'min',
-        #                                                  factor         = 2e-1,
-        #                                                  patience       = 10,
-        #                                                  threshold      = 1e-4,
-        #                                                  threshold_mode ='rel',
-        #                                                  verbose        = True,
-        #                                                  min_lr         = 1e-6
-        #                                                 )
-        # return {'optimizer': optimizer,
-        #         'scheduler': scheduler,
-        #         'monitor': 'val_loss'}
         optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         return optimizer

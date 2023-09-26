@@ -16,7 +16,7 @@ CONFIG = Configurator.from_dict(config_dict)
 
 # Set up export directory...
 # ...Base
-drc_base    = 'experiments'
+drc_base     = 'experiments'
 job_basename = f"ddp.bifpn_block"
 
 # ...Checkpoint

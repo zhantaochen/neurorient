@@ -4,45 +4,6 @@ from .geom import *
 import skopi as sk
 from .config import xp, ndimage
 
-# def rotate_volume(vol, quat):
-#     """
-#     Rotate copies of the volume by the given quaternions.
-
-#     Parameters
-#     ----------
-#     vol : numpy.ndarray, shape (n,n,n)
-#         volume to be rotated
-#     quat : numpy.ndarray, shape (n_quat,4)
-#         quaternions to apply to the volume
-
-#     Returns
-#     -------
-#     rot_vol : numpy.ndarray, shape (n_quat,n,n,n)
-#         rotated copies of volume
-#     """
-#     print("using old version of rotate_volume")
-#     vol = xp.array(vol)
-#     quat = xp.array(quat)
-
-#     M = vol.shape[0]
-#     lincoords = xp.arange(M)
-#     coords = xp.meshgrid(lincoords, lincoords, lincoords)
-
-#     xyz = xp.vstack([coords[0].reshape(-1) - int(M / 2),
-#                      coords[1].reshape(-1) - int(M / 2),
-#                      coords[2].reshape(-1) - int(M / 2)])
-
-#     R = quaternion2rot3d(quat)
-#     transformed_xyz = xp.dot(R, xyz) + int(M / 2)
-
-#     new_xyz = xp.array([transformed_xyz[:, 1, :].flatten(),
-#                         transformed_xyz[:, 0, :].flatten(),
-#                         transformed_xyz[:, 2, :].flatten()])
-#     rot_vol = ndimage.map_coordinates(vol, new_xyz, order=1)
-#     rot_vol = rot_vol.reshape((quat.shape[0], M, M, M))
-#     return rot_vol
-
-
 def rotate_volume(vol, quat):
     """
     Rotate copies of the volume by the given quaternions.
