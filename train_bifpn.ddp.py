@@ -48,11 +48,11 @@ with open(fl_yaml, 'r') as fh:
 CONFIG = Configurator.from_dict(config_dict)
 
 # ...Checkpoint
-## timestamp_prev      = CONFIG.CHKPT.TIMESTAMP_PREV
-## epoch_prev          = CONFIG.CHKPT.EPOCH_PREV
 drc_chkpt           = CONFIG.CHKPT.DIRECTORY
 fl_chkpt_prefix     = CONFIG.CHKPT.FILENAME_PREFIX
 path_chkpt_prev     = CONFIG.CHKPT.PATH_CHKPT_PREV
+chkpt_saving_period = CONFIG.CHKPT.CHKPT_SAVING_PERIOD
+epoch_unstable_end  = CONFIG.CHKPT.EPOCH_UNSTABLE_END
 
 # ...Dataset
 pdb               = CONFIG.DATASET.PDB
@@ -65,10 +65,12 @@ num_workers       = CONFIG.DATASET.NUM_WORKERS
 uses_random_patch = CONFIG.DATASET.USES_RANDOM_PATCH
 
 # ...Model
-num_bifpn_blocks    = CONFIG.MODEL.BIFPN.NUM_BLOCKS
-num_bifpn_features  = CONFIG.MODEL.BIFPN.NUM_FEATURES
-freezes_backbone    = CONFIG.MODEL.FREEZES_BACKBONE
-uses_random_weights = CONFIG.MODEL.USES_RANDOM_WEIGHTS
+num_bifpn_blocks       = CONFIG.MODEL.BIFPN.NUM_BLOCKS
+num_bifpn_features     = CONFIG.MODEL.BIFPN.NUM_FEATURES
+freezes_backbone       = CONFIG.MODEL.FREEZES_BACKBONE
+uses_random_weights    = CONFIG.MODEL.USES_RANDOM_WEIGHTS
+resnet50_out_features  = CONFIG.MODEL.RESNET50_OUT_FEATURES
+resnet50_feature_layer = CONFIG.MODEL.RESNET50_FEATURE_LAYER
 
 # ...Optimizer
 lr           = float(CONFIG.OPTIM.LR)
@@ -93,15 +95,24 @@ uses_unique_world_seed = CONFIG.DDP.USES_UNIQUE_WORLD_SEED
 drc_log       = CONFIG.LOGGING.DIRECTORY
 fl_log_prefix = CONFIG.LOGGING.FILENAME_PREFIX
 
+# ...Input
+img_H = CONFIG.IMG_METADATA.H
+img_W = CONFIG.IMG_METADATA.W
+
 # ...Misc
 uses_mixed_precision = CONFIG.MISC.USES_MIXED_PRECISION
 max_epochs           = CONFIG.MISC.MAX_EPOCHS
 num_gpus             = CONFIG.MISC.NUM_GPUS
 
+
 # Update internal config...
 _CONFIG.BIFPN.NUM_BLOCKS           = num_bifpn_blocks
 _CONFIG.BIFPN.NUM_FEATURES         = num_bifpn_features
-_CONFIG.REGRESSOR_HEAD.IN_FEATURES = num_bifpn_features * 64 * 64
+_CONFIG.REGRESSOR_HEAD.IN_FEATURES = num_bifpn_features * img_H * img_W \
+                                     if num_bifpn_blocks > 0 else       \
+                                     resnet50_out_features
+if not num_bifpn_blocks > 0:
+    _CONFIG.RESNET2ROTMAT.SCALE = resnet50_feature_layer
 
 
 # [[[ ERROR HANDLING ]]]
@@ -136,10 +147,6 @@ seed_offset = ddp_rank if uses_unique_world_seed else 0
 
 
 # [[[ USE YAML CONFIG TO INITIALIZE HYPERPARAMETERS ]]]
-### ...Checkpoint
-##fl_chkpt_prev   = None if timestamp_prev is None else f"{timestamp_prev}.epoch_{epoch_prev}.chkpt"
-##path_chkpt_prev = None if fl_chkpt_prev is None else os.path.join(drc_chkpt, fl_chkpt_prev)
-
 # Set Seed
 base_seed   = 0
 world_seed  = base_seed + seed_offset
@@ -257,12 +264,6 @@ scheduler = CosineLRScheduler(optimizer     = optimizer,
                               warmup_epochs = warmup_epochs,
                               total_epochs  = total_epochs,
                               min_lr        = min_lr)
-## scheduler = ReduceLROnPlateau(optimizer, mode           = 'min',
-##                                          factor         = 2e-1,
-##                                          patience       = patience,
-##                                          threshold      = 1e-4,
-##                                          threshold_mode ='rel',
-##                                          verbose        = True)
 
 
 # [[[ TRAIN LOOP ]]]
@@ -281,10 +282,6 @@ if ddp_rank == 0:
     print(f"Current timestamp: {timestamp}")
 
 try:
-    chkpt_saving_period = 1
-    epoch_unstable_end  = -1
-    ## chkpt_saving_period = 5
-    ## epoch_unstable_end  = 40
     for epoch in tqdm.tqdm(range(max_epochs)):
         epoch += epoch_min
 
