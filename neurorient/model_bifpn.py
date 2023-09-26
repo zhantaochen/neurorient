@@ -41,13 +41,17 @@ class ResNet2RotMat(nn.Module):
                                      out_channels = _CONFIG.BIFPN.NUM_FEATURES,
                                      kernel_size  = 1,
                                      stride       = 1,
-                                     padding      = 0)
+                                     padding      = 0) \
+            if _CONFIG.BIFPN.NUM_BLOCKS > 0 else       \
+            nn.Identity()
             for _, in_channels in _CONFIG.BACKBONE.OUTPUT_CHANNELS.items()
         ])
 
         self.bifpn = BiFPN(num_blocks   = _CONFIG.BIFPN.NUM_BLOCKS,
                            num_features = _CONFIG.BIFPN.NUM_FEATURES,
-                           num_levels   = _CONFIG.BIFPN.NUM_LEVELS)
+                           num_levels   = _CONFIG.BIFPN.NUM_LEVELS) \
+                     if _CONFIG.BIFPN.NUM_BLOCKS > 0 else           \
+                     nn.Identity()
 
         self.regressor_head = nn.Linear(_CONFIG.REGRESSOR_HEAD.IN_FEATURES, _CONFIG.REGRESSOR_HEAD.OUT_FEATURES)
 
