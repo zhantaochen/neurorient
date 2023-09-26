@@ -143,15 +143,29 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
         fig, ax = plt.subplots(N, 3, figsize=(9.5, 3 * N))
     if N == 1:
         dim1, dim2, dim3 = volumes[0].shape
-        ax[0].imshow(volumes[0][dim1//2,:,:], cmap=cmap, vmin=vmin, vmax=vmax)
-        ax[1].imshow(volumes[0][:,dim2//2,:], cmap=cmap, vmin=vmin, vmax=vmax)
-        ax[2].imshow(volumes[0][:,:,dim3//2], cmap=cmap, vmin=vmin, vmax=vmax)
+        ax[0].imshow(volumes[0][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
+        ax[1].imshow(volumes[0][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
+        ax[2].imshow(volumes[0][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
+        ax[0].set_ylabel('$z$')
+        ax[1].set_ylabel('$z$')
+        ax[2].set_ylabel('$y$')
+        ax[0].set_xlabel('$y$')
+        ax[1].set_xlabel('$x$')
+        ax[2].set_xlabel('$x$')
     else:
         for i in range(N):
             dim1, dim2, dim3 = volumes[i].shape
-            ax[i,0].imshow(volumes[i][dim1//2,:,:], cmap=cmap, vmin=vmin, vmax=vmax)
-            ax[i,1].imshow(volumes[i][:,dim2//2,:], cmap=cmap, vmin=vmin, vmax=vmax)
-            ax[i,2].imshow(volumes[i][:,:,dim3//2], cmap=cmap, vmin=vmin, vmax=vmax)
+            ax[i,0].imshow(volumes[i][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
+            ax[i,1].imshow(volumes[i][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
+            ax[i,2].imshow(volumes[i][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
+            
+            ax[i,0].set_ylabel('$z$')
+            ax[i,1].set_ylabel('$z$')
+            ax[i,2].set_ylabel('$y$')
+        ax[-1,0].set_xlabel('$y$')
+        ax[-1,1].set_xlabel('$x$')
+        ax[-1,2].set_xlabel('$x$')
+        
     plt.tight_layout()
     # plt.show()
     if save_to is not None:
