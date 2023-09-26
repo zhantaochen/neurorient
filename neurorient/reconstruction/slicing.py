@@ -143,7 +143,7 @@ def gen_nonuniform_positions(orientations, pixel_position_reciprocal):
     # Einsum shape is (3, N_images, ) + det_shape
     # H, K, L shape -> [N_images, ] + det_shape
     HKL = torch.einsum("ijk,lmnk->jilmn", rotmat, pixel_position_reciprocal)
-    # shape -> [N_images] x det_shape
+    # shape -> [H,K,L] x [N_images] x det_shape
     return HKL
 
 
