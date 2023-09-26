@@ -81,14 +81,6 @@ class IntensityNet(nn.Module):
     def forward(self, x):
         return self.net_mag(x) + self.net_mag(-x)
 
-# class PhaseNet(nn.Module):
-#     def __init__(self, *args, **kwargs):
-#         super().__init__()
-#         self.net_phase = SirenNet(*args, **kwargs)
-
-#     def forward(self, x):
-#         return self.net_phase(x) - self.net_phase(-x)
-
 class NeurOrient(nn.Module):
     def __init__(self, 
                  pixel_position_reciprocal, 
@@ -243,8 +235,3 @@ class NeurOrient(nn.Module):
             num_figs = min(10, slices_true.shape[0])
             slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.loss_scale_factor
             display_images_in_parallel(slice_disp, slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_val.png')
-
-
-    def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        return optimizer

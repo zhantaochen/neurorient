@@ -48,14 +48,6 @@ class IntensityNet(nn.Module):
     def forward(self, x):
         return self.net_mag(x) + self.net_mag(-x)
     
-# class PhaseNet(nn.Module):
-#     def __init__(self, *args, **kwargs):
-#         super().__init__()
-#         self.net_phase = SirenNet(*args, **kwargs)
-    
-#     def forward(self, x):
-#         return self.net_phase(x) - self.net_phase(-x)
-    
 class NeurOrient(L.LightningModule):
     def __init__(self, 
                  pixel_position_reciprocal, 
@@ -97,7 +89,8 @@ class NeurOrient(L.LightningModule):
             final_activation=torch.nn.SiLU(),
         )
             
-        self.nufft_forward = KbNufftRealView(im_size=(self.image_dimension,)*3)
+        # self.nufft_forward = KbNufftRealView(im_size=(self.image_dimension,)*3)
+        self.nufft_forward = KbNufft(im_size=(self.image_dimension,)*3)
         
         self.radial_scale_configs = radial_scale_configs
         if self.radial_scale_configs is None:
@@ -220,18 +213,5 @@ class NeurOrient(L.LightningModule):
         
         
     def configure_optimizers(self):
-        # optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
-        #                                                  mode           = 'min',
-        #                                                  factor         = 2e-1,
-        #                                                  patience       = 10,
-        #                                                  threshold      = 1e-4,
-        #                                                  threshold_mode ='rel',
-        #                                                  verbose        = True,
-        #                                                  min_lr         = 1e-6
-        #                                                 )
-        # return {'optimizer': optimizer,
-        #         'scheduler': scheduler,
-        #         'monitor': 'val_loss'}
         optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         return optimizer
