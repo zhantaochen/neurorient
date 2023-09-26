@@ -26,6 +26,7 @@ from neurorient.image_transform import RandomPatch
 from neurorient.utils           import init_logger, MetaLog, split_dataset, save_checkpoint, load_checkpoint, set_seed, init_weights
 from neurorient.configurator    import Configurator
 from neurorient.lr_scheduler    import CosineLRScheduler
+from neurorient.config          import _CONFIG
 
 torch.autograd.set_detect_anomaly(False)    # [WARNING] Making it True may throw errors when using bfloat16
                                             # Reference: https://discuss.pytorch.org/t/convolutionbackward0-returned-nan-values-in-its-0th-output/175571/4
@@ -94,6 +95,11 @@ fl_log_prefix = CONFIG.LOGGING.FILENAME_PREFIX
 uses_mixed_precision = CONFIG.MISC.USES_MIXED_PRECISION
 max_epochs           = CONFIG.MISC.MAX_EPOCHS
 num_gpus             = CONFIG.MISC.NUM_GPUS
+
+# Update internal config...
+_CONFIG.BIFPN.NUM_BLOCKS           = num_bifpn_blocks
+_CONFIG.BIFPN.NUM_FEATURES         = num_bifpn_features
+_CONFIG.REGRESSOR_HEAD.IN_FEATURES = num_bifpn_features * 64 * 64
 
 
 # [[[ ERROR HANDLING ]]]
