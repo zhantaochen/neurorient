@@ -3,6 +3,8 @@ from pytorch3d.transforms import matrix_to_quaternion, quaternion_to_matrix
 import numpy
 import torch
 
+from .reconstruction.slicing import gen_nonuniform_normalized_positions
+
 import cupy as xp
 
 def convert_to_cupy(x):
@@ -28,6 +30,40 @@ def convert_to_numpy(x):
         return x.detach().cpu().numpy()
     else:
         return x
+
+
+from torchkbnufft import KbNufft
+class NUFFT(torch.nn.Module):
+    def __init__(self, pixel_position_reciprocal, over_sampling=1, device='cpu'):
+        super().__init__()
+        self.register_buffer("pixel_position_reciprocal", pixel_position_reciprocal)
+        self.over_sampling = over_sampling
+        self.im_size = pixel_position_reciprocal.shape[1]
+        self.nufft_forward = KbNufft(im_size=(self.im_size,)*3)
+        self.device = device
+        self.to(device)
+        
+    def forward(self, ac, quaternions, compute_grad=False):
+        if compute_grad:
+            return self._forward_with_grad(ac, quaternions)
+        else:
+            with torch.no_grad():
+                return self._forward_with_grad(ac, quaternions)
+    
+    def _forward_with_grad(self, ac, quaternions):
+        ac = convert_to_torch(ac).to(self.device)
+        quaternions = convert_to_torch(quaternions).to(self.device)
+
+        HKL = gen_nonuniform_normalized_positions(
+                quaternions, self.pixel_position_reciprocal, self.over_sampling)
+        if not ac.is_complex():
+            ac = ac.to(dtype=torch.complex64)
+        if ac.ndim == 3:
+            ac = ac.unsqueeze(0).unsqueeze(0)
+        assert ac.ndim == 5, f"ac must be 5D tensor, got {ac.ndim}"
+        slices = self.nufft_forward(ac, HKL)[0,0]
+        slices = slices.real.view((-1,) + (self.im_size,)*2)
+        return slices
 
 """
 taken from https://scikit-surgerycore.readthedocs.io/en/stable/_modules/sksurgerycore/algorithms/averagequaternions.html#average_quaternions
