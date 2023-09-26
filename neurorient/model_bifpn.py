@@ -203,6 +203,27 @@ class NeurOrient(nn.Module):
         return loss
 
 
+    def estimate(self, x, return_reconstruction=False):
+        slices_true = x
+
+        slices_true = slices_true * self.loss_scale_factor + 1.
+        slices_input = torch.log(slices_true)
+
+        # predict orientations from images
+        orientations = self.image_to_orientation(slices_input)
+        if not return_reconstruction:
+            return orientations
+        else:
+            # get reciprocal positions based on orientations
+            # HKL has shape (3, num_qpts)
+            HKL = gen_nonuniform_normalized_positions(
+                orientations, self.pixel_position_reciprocal, self.over_sampling)
+            # predict slices from HKL
+            slices_pred = self.predict_slice(HKL).view((-1, 1,) + (self.image_dimension,)*2)
+
+            return orientations, slices_pred
+
+
     def forward(self, x):
         slices_true = x
 

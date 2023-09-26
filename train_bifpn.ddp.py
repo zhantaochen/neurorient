@@ -48,10 +48,11 @@ with open(fl_yaml, 'r') as fh:
 CONFIG = Configurator.from_dict(config_dict)
 
 # ...Checkpoint
-timestamp_prev      = CONFIG.CHKPT.TIMESTAMP_PREV
-epoch_prev          = CONFIG.CHKPT.EPOCH_PREV
+## timestamp_prev      = CONFIG.CHKPT.TIMESTAMP_PREV
+## epoch_prev          = CONFIG.CHKPT.EPOCH_PREV
 drc_chkpt           = CONFIG.CHKPT.DIRECTORY
 fl_chkpt_prefix     = CONFIG.CHKPT.FILENAME_PREFIX
+path_chkpt_prev     = CONFIG.CHKPT.PATH_CHKPT_PREV
 
 # ...Dataset
 pdb               = CONFIG.DATASET.PDB
@@ -79,9 +80,10 @@ loss_scale_factor = CONFIG.LOSS.SCALE_FACTOR
 
 # ...Scheduler
 ## patience = CONFIG.LR_SCHEDULER.PATIENCE
-warmup_epochs = CONFIG.LR_SCHEDULER.WARMUP_EPOCHS
-total_epochs  = CONFIG.LR_SCHEDULER.TOTAL_EPOCHS
-min_lr        = float(CONFIG.LR_SCHEDULER.MIN_LR)
+warmup_epochs       = CONFIG.LR_SCHEDULER.WARMUP_EPOCHS
+total_epochs        = CONFIG.LR_SCHEDULER.TOTAL_EPOCHS
+min_lr              = float(CONFIG.LR_SCHEDULER.MIN_LR)
+uses_prev_scheduler = CONFIG.LR_SCHEDULER.USES_PREV
 
 # ...DDP
 ddp_backend            = CONFIG.DDP.BACKEND
@@ -134,9 +136,9 @@ seed_offset = ddp_rank if uses_unique_world_seed else 0
 
 
 # [[[ USE YAML CONFIG TO INITIALIZE HYPERPARAMETERS ]]]
-# ...Checkpoint
-fl_chkpt_prev   = None if timestamp_prev is None else f"{timestamp_prev}.epoch_{epoch_prev}.chkpt"
-path_chkpt_prev = None if fl_chkpt_prev is None else os.path.join(drc_chkpt, fl_chkpt_prev)
+### ...Checkpoint
+##fl_chkpt_prev   = None if timestamp_prev is None else f"{timestamp_prev}.epoch_{epoch_prev}.chkpt"
+##path_chkpt_prev = None if fl_chkpt_prev is None else os.path.join(drc_chkpt, fl_chkpt_prev)
 
 # Set Seed
 base_seed   = 0
@@ -268,8 +270,10 @@ scheduler = CosineLRScheduler(optimizer     = optimizer,
 epoch_min = 0
 loss_min  = float('inf')
 if path_chkpt_prev is not None:
-    epoch_min, loss_min = load_checkpoint(model, optimizer, scheduler, path_chkpt_prev)
-    ## epoch_min, loss_min = load_checkpoint(model, None, None, path_chkpt_prev)
+    epoch_min, loss_min = load_checkpoint(model,
+                                          optimizer,
+                                          scheduler if uses_prev_scheduler else None,
+                                          path_chkpt_prev)
     epoch_min += 1    # Next epoch
     logger.info(f"PREV - epoch_min = {epoch_min}, loss_min = {loss_min}")
 
@@ -277,8 +281,10 @@ if ddp_rank == 0:
     print(f"Current timestamp: {timestamp}")
 
 try:
-    chkpt_saving_period = 5
-    epoch_unstable_end  = 40
+    chkpt_saving_period = 1
+    epoch_unstable_end  = -1
+    ## chkpt_saving_period = 5
+    ## epoch_unstable_end  = 40
     for epoch in tqdm.tqdm(range(max_epochs)):
         epoch += epoch_min
 
