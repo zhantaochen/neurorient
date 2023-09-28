@@ -48,10 +48,11 @@ with open(fl_yaml, 'r') as fh:
 CONFIG = Configurator.from_dict(config_dict)
 
 # ...Checkpoint
-timestamp_prev      = CONFIG.CHKPT.TIMESTAMP_PREV
-epoch_prev          = CONFIG.CHKPT.EPOCH_PREV
 drc_chkpt           = CONFIG.CHKPT.DIRECTORY
 fl_chkpt_prefix     = CONFIG.CHKPT.FILENAME_PREFIX
+path_chkpt_prev     = CONFIG.CHKPT.PATH_CHKPT_PREV
+chkpt_saving_period = CONFIG.CHKPT.CHKPT_SAVING_PERIOD
+epoch_unstable_end  = CONFIG.CHKPT.EPOCH_UNSTABLE_END
 
 # ...Dataset
 pdb               = CONFIG.DATASET.PDB
@@ -64,10 +65,14 @@ num_workers       = CONFIG.DATASET.NUM_WORKERS
 uses_random_patch = CONFIG.DATASET.USES_RANDOM_PATCH
 
 # ...Model
-num_bifpn_blocks    = CONFIG.MODEL.BIFPN.NUM_BLOCKS
-num_bifpn_features  = CONFIG.MODEL.BIFPN.NUM_FEATURES
-freezes_backbone    = CONFIG.MODEL.FREEZES_BACKBONE
-uses_random_weights = CONFIG.MODEL.USES_RANDOM_WEIGHTS
+num_bifpn_blocks       = CONFIG.MODEL.BIFPN.NUM_BLOCKS
+num_bifpn_features     = CONFIG.MODEL.BIFPN.NUM_FEATURES
+num_bifpn_levels       = CONFIG.MODEL.BIFPN.NUM_LEVELS
+freezes_backbone       = CONFIG.MODEL.FREEZES_BACKBONE
+uses_random_weights    = CONFIG.MODEL.USES_RANDOM_WEIGHTS
+resnet50_out_features  = CONFIG.MODEL.RESNET50_OUT_FEATURES
+resnet50_feature_layer = CONFIG.MODEL.RESNET50_FEATURE_LAYER
+head_anchor_layer      = CONFIG.MODEL.HEAD.ANCHOR_LAYER
 
 # ...Optimizer
 lr           = float(CONFIG.OPTIM.LR)
@@ -79,9 +84,10 @@ loss_scale_factor = CONFIG.LOSS.SCALE_FACTOR
 
 # ...Scheduler
 ## patience = CONFIG.LR_SCHEDULER.PATIENCE
-warmup_epochs = CONFIG.LR_SCHEDULER.WARMUP_EPOCHS
-total_epochs  = CONFIG.LR_SCHEDULER.TOTAL_EPOCHS
-min_lr        = float(CONFIG.LR_SCHEDULER.MIN_LR)
+warmup_epochs       = CONFIG.LR_SCHEDULER.WARMUP_EPOCHS
+total_epochs        = CONFIG.LR_SCHEDULER.TOTAL_EPOCHS
+min_lr              = float(CONFIG.LR_SCHEDULER.MIN_LR)
+uses_prev_scheduler = CONFIG.LR_SCHEDULER.USES_PREV
 
 # ...DDP
 ddp_backend            = CONFIG.DDP.BACKEND
@@ -91,15 +97,26 @@ uses_unique_world_seed = CONFIG.DDP.USES_UNIQUE_WORLD_SEED
 drc_log       = CONFIG.LOGGING.DIRECTORY
 fl_log_prefix = CONFIG.LOGGING.FILENAME_PREFIX
 
+# ...Input
+img_H = CONFIG.IMG_METADATA.H
+img_W = CONFIG.IMG_METADATA.W
+
 # ...Misc
 uses_mixed_precision = CONFIG.MISC.USES_MIXED_PRECISION
 max_epochs           = CONFIG.MISC.MAX_EPOCHS
 num_gpus             = CONFIG.MISC.NUM_GPUS
 
+
 # Update internal config...
 _CONFIG.BIFPN.NUM_BLOCKS           = num_bifpn_blocks
 _CONFIG.BIFPN.NUM_FEATURES         = num_bifpn_features
-_CONFIG.REGRESSOR_HEAD.IN_FEATURES = num_bifpn_features * 64 * 64
+_CONFIG.BIFPN.NUM_LEVELS           = num_bifpn_levels
+_CONFIG.REGRESSOR_HEAD.IN_FEATURES = num_bifpn_features * img_H * img_W \
+                                     if num_bifpn_blocks > 0 else       \
+                                     resnet50_out_features
+_CONFIG.RESNET2ROTMAT.SCALE = resnet50_feature_layer           \
+                              if not num_bifpn_blocks > 0 else \
+                              head_anchor_layer
 
 
 # [[[ ERROR HANDLING ]]]
@@ -134,10 +151,6 @@ seed_offset = ddp_rank if uses_unique_world_seed else 0
 
 
 # [[[ USE YAML CONFIG TO INITIALIZE HYPERPARAMETERS ]]]
-# ...Checkpoint
-fl_chkpt_prev   = None if timestamp_prev is None else f"{timestamp_prev}.epoch_{epoch_prev}.chkpt"
-path_chkpt_prev = None if fl_chkpt_prev is None else os.path.join(drc_chkpt, fl_chkpt_prev)
-
 # Set Seed
 base_seed   = 0
 world_seed  = base_seed + seed_offset
@@ -255,12 +268,6 @@ scheduler = CosineLRScheduler(optimizer     = optimizer,
                               warmup_epochs = warmup_epochs,
                               total_epochs  = total_epochs,
                               min_lr        = min_lr)
-## scheduler = ReduceLROnPlateau(optimizer, mode           = 'min',
-##                                          factor         = 2e-1,
-##                                          patience       = patience,
-##                                          threshold      = 1e-4,
-##                                          threshold_mode ='rel',
-##                                          verbose        = True)
 
 
 # [[[ TRAIN LOOP ]]]
@@ -268,8 +275,10 @@ scheduler = CosineLRScheduler(optimizer     = optimizer,
 epoch_min = 0
 loss_min  = float('inf')
 if path_chkpt_prev is not None:
-    epoch_min, loss_min = load_checkpoint(model, optimizer, scheduler, path_chkpt_prev)
-    ## epoch_min, loss_min = load_checkpoint(model, None, None, path_chkpt_prev)
+    epoch_min, loss_min = load_checkpoint(model,
+                                          optimizer,
+                                          scheduler if uses_prev_scheduler else None,
+                                          path_chkpt_prev)
     epoch_min += 1    # Next epoch
     logger.info(f"PREV - epoch_min = {epoch_min}, loss_min = {loss_min}")
 
@@ -277,8 +286,6 @@ if ddp_rank == 0:
     print(f"Current timestamp: {timestamp}")
 
 try:
-    chkpt_saving_period = 5
-    epoch_unstable_end  = 40
     for epoch in tqdm.tqdm(range(max_epochs)):
         epoch += epoch_min
 

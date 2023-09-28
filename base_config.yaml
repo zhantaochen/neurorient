@@ -1,8 +1,9 @@
 CHKPT:
-  TIMESTAMP_PREV  : null
-  EPOCH_PREV      : null
-  DIRECTORY       : chkpts
-  FILENAME_PREFIX : null
+  DIRECTORY           : chkpts
+  FILENAME_PREFIX     : null
+  PATH_CHKPT_PREV     : null
+  CHKPT_SAVING_PERIOD : 5
+  EPOCH_UNSTABLE_END  : 40
 
 DATASET:
   PDB               : 1BXR
@@ -14,12 +15,21 @@ DATASET:
   NUM_WORKERS       : 10
   USES_RANDOM_PATCH : false
 
+IMG_METADATA:
+  H : 4
+  W : 4
+
 MODEL:
   BIFPN:
-    NUM_BLOCKS   : 1
+    NUM_BLOCKS   : 3
     NUM_FEATURES : 64
-  FREEZES_BACKBONE : false
-  USES_RANDOM_WEIGHTS : false
+    NUM_LEVELS   : 3
+  FREEZES_BACKBONE       : false
+  USES_RANDOM_WEIGHTS    : false
+  RESNET50_OUT_FEATURES  : 32768
+  RESNET50_FEATURE_LAYER : -1
+  HEAD:
+    ANCHOR_LAYER : -1
 
 LOSS:
   SCALE_FACTOR : 10
@@ -34,6 +44,7 @@ LR_SCHEDULER:
   WARMUP_EPOCHS : 5
   TOTAL_EPOCHS  : 500
   MIN_LR        : 1e-7
+  USES_PREV     : true
 
 DDP:
   BACKEND                : nccl
@@ -45,5 +56,8 @@ LOGGING:
 
 MISC:
   USES_MIXED_PRECISION : false
-  MAX_EPOCHS           : 500
+  MAX_EPOCHS           : 1000
   NUM_GPUS             : 2
+
+HISTORY:
+  PREV : null
