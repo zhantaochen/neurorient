@@ -16,7 +16,7 @@ from .utils_visualization import display_images_in_parallel
 
 from .utils_model import get_radial_scale_mask
 
-from .config import CONFIG
+from .config import _CONFIG
 
 class KbNufftRealView(KbNufft):
     def __init__(self, im_size, grid_size = None):
@@ -38,18 +38,18 @@ class ResNet2RotMat(nn.Module):
         # Create the adapter layer between backbone and bifpn...
         self.backbone_to_bifpn = nn.ModuleList([
             DepthwiseSeparableConv2d(in_channels  = in_channels,
-                                     out_channels = CONFIG.BIFPN.NUM_FEATURES,
+                                     out_channels = _CONFIG.BIFPN.NUM_FEATURES,
                                      kernel_size  = 1,
                                      stride       = 1,
                                      padding      = 0)
-            for _, in_channels in CONFIG.BACKBONE.OUTPUT_CHANNELS.items()
+            for _, in_channels in _CONFIG.BACKBONE.OUTPUT_CHANNELS.items()
         ])
 
-        self.bifpn = BiFPN(num_blocks   = CONFIG.BIFPN.NUM_BLOCKS,
-                           num_features = CONFIG.BIFPN.NUM_FEATURES,
-                           num_levels   = CONFIG.BIFPN.NUM_LEVELS)
+        self.bifpn = BiFPN(num_blocks   = _CONFIG.BIFPN.NUM_BLOCKS,
+                           num_features = _CONFIG.BIFPN.NUM_FEATURES,
+                           num_levels   = _CONFIG.BIFPN.NUM_LEVELS)
 
-        self.regressor_head = nn.Linear(CONFIG.REGRESSOR_HEAD.IN_FEATURES, CONFIG.REGRESSOR_HEAD.OUT_FEATURES)
+        self.regressor_head = nn.Linear(_CONFIG.REGRESSOR_HEAD.IN_FEATURES, _CONFIG.REGRESSOR_HEAD.OUT_FEATURES)
 
     def forward(self, x):
         # Calculate and save feature maps in multiple resolutions...
@@ -65,7 +65,7 @@ class ResNet2RotMat(nn.Module):
         bifpn_output_list = self.bifpn(bifpn_input_list)
 
         # Use the N-th feature maps for regression...
-        regressor_input = bifpn_output_list[CONFIG.RESNET2ROTMAT.SCALE]
+        regressor_input = bifpn_output_list[_CONFIG.RESNET2ROTMAT.SCALE]
         B, C, H, W = regressor_input.shape
         regressor_input = regressor_input.view(B, C * H * W)
         logits = self.regressor_head(regressor_input)
@@ -107,7 +107,7 @@ class NeurOrient(nn.Module):
 
         self.over_sampling = over_sampling
         self.orientation_predictor = ResNet2RotMat(
-            size=CONFIG.BACKBONE.RES_TYPE, pretrained=pretrained_backbone,
+            size=_CONFIG.BACKBONE.RES_TYPE, pretrained=pretrained_backbone,
         )
 
         # setup volume predictor
