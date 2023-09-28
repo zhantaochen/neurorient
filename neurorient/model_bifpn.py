@@ -45,7 +45,7 @@ class ResNet2RotMat(nn.Module):
             if _CONFIG.BIFPN.NUM_BLOCKS > 0 else       \
             nn.Identity()
             for _, in_channels in _CONFIG.BACKBONE.OUTPUT_CHANNELS.items()
-        ])
+        ])[-_CONFIG.BIFPN.NUM_LEVELS:]    # Only consider fmaps from the most coarse level
 
         self.bifpn = BiFPN(num_blocks   = _CONFIG.BIFPN.NUM_BLOCKS,
                            num_features = _CONFIG.BIFPN.NUM_FEATURES,
@@ -58,6 +58,7 @@ class ResNet2RotMat(nn.Module):
     def forward(self, x):
         # Calculate and save feature maps in multiple resolutions...
         fmap_in_backbone_layers = self.backbone(x)
+        fmap_in_backbone_layers = fmap_in_backbone_layers[-_CONFIG.BIFPN.NUM_LEVELS:]    # Only consider fmaps from the most coarse level
 
         # Apply the BiFPN adapter...
         bifpn_input_list = []

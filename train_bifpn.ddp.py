@@ -67,10 +67,12 @@ uses_random_patch = CONFIG.DATASET.USES_RANDOM_PATCH
 # ...Model
 num_bifpn_blocks       = CONFIG.MODEL.BIFPN.NUM_BLOCKS
 num_bifpn_features     = CONFIG.MODEL.BIFPN.NUM_FEATURES
+num_bifpn_levels       = CONFIG.MODEL.BIFPN.NUM_LEVELS
 freezes_backbone       = CONFIG.MODEL.FREEZES_BACKBONE
 uses_random_weights    = CONFIG.MODEL.USES_RANDOM_WEIGHTS
 resnet50_out_features  = CONFIG.MODEL.RESNET50_OUT_FEATURES
 resnet50_feature_layer = CONFIG.MODEL.RESNET50_FEATURE_LAYER
+head_anchor_layer      = CONFIG.MODEL.HEAD.ANCHOR_LAYER
 
 # ...Optimizer
 lr           = float(CONFIG.OPTIM.LR)
@@ -108,11 +110,13 @@ num_gpus             = CONFIG.MISC.NUM_GPUS
 # Update internal config...
 _CONFIG.BIFPN.NUM_BLOCKS           = num_bifpn_blocks
 _CONFIG.BIFPN.NUM_FEATURES         = num_bifpn_features
+_CONFIG.BIFPN.NUM_LEVELS           = num_bifpn_levels
 _CONFIG.REGRESSOR_HEAD.IN_FEATURES = num_bifpn_features * img_H * img_W \
                                      if num_bifpn_blocks > 0 else       \
                                      resnet50_out_features
-if not num_bifpn_blocks > 0:
-    _CONFIG.RESNET2ROTMAT.SCALE = resnet50_feature_layer
+_CONFIG.RESNET2ROTMAT.SCALE = resnet50_feature_layer           \
+                              if not num_bifpn_blocks > 0 else \
+                              head_anchor_layer
 
 
 # [[[ ERROR HANDLING ]]]
