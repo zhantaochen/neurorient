@@ -1,5 +1,10 @@
 from .configurator import Configurator
 
+"""
+This is the default configuration for the model.
+The configuration will be overwritten by the user's configuration file.
+"""
+
 _CONFIG = Configurator()
 with _CONFIG.enable_auto_create():
     _CONFIG.BACKBONE.RES_TYPE       = 50
