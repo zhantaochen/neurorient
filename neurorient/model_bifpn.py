@@ -41,19 +41,24 @@ class ResNet2RotMat(nn.Module):
                                      out_channels = _CONFIG.BIFPN.NUM_FEATURES,
                                      kernel_size  = 1,
                                      stride       = 1,
-                                     padding      = 0)
+                                     padding      = 0) \
+            if _CONFIG.BIFPN.NUM_BLOCKS > 0 else       \
+            nn.Identity()
             for _, in_channels in _CONFIG.BACKBONE.OUTPUT_CHANNELS.items()
-        ])
+        ])[-_CONFIG.BIFPN.NUM_LEVELS:]    # Only consider fmaps from the most coarse level
 
         self.bifpn = BiFPN(num_blocks   = _CONFIG.BIFPN.NUM_BLOCKS,
                            num_features = _CONFIG.BIFPN.NUM_FEATURES,
-                           num_levels   = _CONFIG.BIFPN.NUM_LEVELS)
+                           num_levels   = _CONFIG.BIFPN.NUM_LEVELS) \
+                     if _CONFIG.BIFPN.NUM_BLOCKS > 0 else           \
+                     nn.Identity()
 
         self.regressor_head = nn.Linear(_CONFIG.REGRESSOR_HEAD.IN_FEATURES, _CONFIG.REGRESSOR_HEAD.OUT_FEATURES)
 
     def forward(self, x):
         # Calculate and save feature maps in multiple resolutions...
         fmap_in_backbone_layers = self.backbone(x)
+        fmap_in_backbone_layers = fmap_in_backbone_layers[-_CONFIG.BIFPN.NUM_LEVELS:]    # Only consider fmaps from the most coarse level
 
         # Apply the BiFPN adapter...
         bifpn_input_list = []
@@ -193,6 +198,27 @@ class NeurOrient(nn.Module):
             display_images_in_parallel(slice_disp, slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_train.png')
 
         return loss
+
+
+    def estimate(self, x, return_reconstruction=False):
+        slices_true = x
+
+        slices_true = slices_true * self.loss_scale_factor + 1.
+        slices_input = torch.log(slices_true)
+
+        # predict orientations from images
+        orientations = self.image_to_orientation(slices_input)
+        if not return_reconstruction:
+            return orientations
+        else:
+            # get reciprocal positions based on orientations
+            # HKL has shape (3, num_qpts)
+            HKL = gen_nonuniform_normalized_positions(
+                orientations, self.pixel_position_reciprocal, self.over_sampling)
+            # predict slices from HKL
+            slices_pred = self.predict_slice(HKL).view((-1, 1,) + (self.image_dimension,)*2)
+
+            return orientations, slices_pred
 
 
     def forward(self, x):
