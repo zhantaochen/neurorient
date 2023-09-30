@@ -5,6 +5,7 @@ CHKPT:
   FILENAME_PREFIX : null
 
 DATASET:
+  DIRECTORY         : '/pscratch/sd/z/zhantao/neurorient_repo/data'
   PDB               : 1BXR
   POISSON           : true
   INCREASE_FACTOR   : 10
@@ -47,3 +48,4 @@ MISC:
   USES_MIXED_PRECISION : false
   MAX_EPOCHS           : 1000
   NUM_GPUS             : 2
+  BASE_DIRECTORY       : "/pscratch/sd/z/zhantao/neurorient_repo"

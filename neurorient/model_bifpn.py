@@ -40,8 +40,8 @@ class Slice2RotMat(nn.Module):
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 6)
     
     def forward(self, img):
-        if img.shape[1] == 1:
-            img = img.repeat(1, 3, 1, 1)
+        if img.ndim == 3:
+            img = img.unsqueeze(1)
         embed = self.resnet(img)
         rotmat = rotation_6d_to_matrix(embed)
         return rotmat
