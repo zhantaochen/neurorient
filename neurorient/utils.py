@@ -33,7 +33,7 @@ def set_seed(seed):
 
 
 
-def init_logger(fl_prefix = None, drc_log = "logs", returns_timestamp = False):
+def init_logger(fl_prefix = None, dir_log = "logs", returns_timestamp = False):
     # Create a timestamp to name the log file...
     now = datetime.now()
     timestamp = now.strftime("%Y_%m%d_%H%M_%S")
@@ -44,8 +44,8 @@ def init_logger(fl_prefix = None, drc_log = "logs", returns_timestamp = False):
     if fl_prefix is not None: fl_log = f"{fl_prefix}.{fl_log}"
 
     # ...path
-    os.makedirs(drc_log, exist_ok = True)
-    path_log = os.path.join(drc_log, fl_log)
+    os.makedirs(dir_log, exist_ok = True)
+    path_log = os.path.join(dir_log, fl_log)
 
     # Config logging behaviors
     logging.basicConfig( filename = path_log,
