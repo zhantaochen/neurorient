@@ -2,7 +2,9 @@ import torch
 import torch.nn            as nn
 import torch.nn.functional as F
 
-from .config import _CONFIG
+from .config import bifpn_internal_config
+
+
 
 
 def conv2d(in_channels, out_channels, kernel_size, *, stride = 1, groups = 1, bias = False):    # ...`*` forces the rest arguments to be keyword arguments
@@ -118,8 +120,8 @@ class BiFPNBlock(nn.Module):
                                          out_channels = num_features,
                                          bias         = False),
                 nn.BatchNorm2d(num_features = num_features,
-                               eps          = _CONFIG.BIFPN.BN.EPS,
-                               momentum     = _CONFIG.BIFPN.BN.MOMENTUM),
+                               eps          = bifpn_internal_config.MODEL.BIFPN.BN.EPS,
+                               momentum     = bifpn_internal_config.MODEL.BIFPN.BN.MOMENTUM),
                 nn.ReLU(),
             )
             for level in range(min_level, max_level)
@@ -133,8 +135,8 @@ class BiFPNBlock(nn.Module):
                                          out_channels = num_features,
                                          bias         = False),
                 nn.BatchNorm2d(num_features = num_features,
-                               eps          = _CONFIG.BIFPN.BN.EPS,
-                               momentum     = _CONFIG.BIFPN.BN.MOMENTUM),
+                               eps          = bifpn_internal_config.MODEL.BIFPN.BN.EPS,
+                               momentum     = bifpn_internal_config.MODEL.BIFPN.BN.MOMENTUM),
                 nn.ReLU(),
             )
             for level in range(min_level + 1, max_level + 1)
@@ -178,11 +180,11 @@ class BiFPNBlock(nn.Module):
 
             w1, w2 = self.w_m[idx]
             m_low_up = F.interpolate(m_low,
-                                     scale_factor  = _CONFIG.BIFPN.UP_SCALE_FACTOR,
+                                     scale_factor  = bifpn_internal_config.MODEL.BIFPN.UP_SCALE_FACTOR,
                                      mode          = 'bilinear',
                                      align_corners = False)
             m_fused  = w1 * p_high + w2 * m_low_up
-            m_fused /= (w1 + w2 + _CONFIG.BIFPN.FUSION.EPS)
+            m_fused /= (w1 + w2 + bifpn_internal_config.MODEL.BIFPN.FUSION.EPS)
             m_fused  = self.conv[f"m{level_high}"](m_fused)
 
             m[level_high] = m_fused
@@ -198,11 +200,11 @@ class BiFPNBlock(nn.Module):
 
             w1, w2, w3 = self.w_q[idx]
             q_high_up = F.interpolate(q_high,
-                                      scale_factor  = _CONFIG.BIFPN.DOWN_SCALE_FACTOR,
+                                      scale_factor  = bifpn_internal_config.MODEL.BIFPN.DOWN_SCALE_FACTOR,
                                       mode          = 'bilinear',
                                       align_corners = False)
             q_fused  = w1 * p_low + w2 * m_low + w3 * q_high_up
-            q_fused /= (w1 + w2 + w3 + _CONFIG.BIFPN.FUSION.EPS)
+            q_fused /= (w1 + w2 + w3 + bifpn_internal_config.MODEL.BIFPN.FUSION.EPS)
             q_fused  = self.conv[f"q{level_low}"](q_fused)
 
             if idx == 0: q[level_high] = q_high

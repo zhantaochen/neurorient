@@ -20,6 +20,7 @@ IMG_METADATA:
   W : 4
 
 MODEL:
+  USE_BIFPN : false
   BIFPN:
     NUM_BLOCKS   : 3
     NUM_FEATURES : 64

@@ -1,5 +1,6 @@
 import torch
 from torch import nn, optim
+import torchvision.models.resnet as resnet
 
 import os
 
@@ -14,9 +15,6 @@ from .external.siren_pytorch import SirenNet
 from .reconstruction.slicing import get_real_mesh, gen_nonuniform_normalized_positions
 from .utils_visualization import display_images_in_parallel
 
-from .utils_model import get_radial_scale_mask
-
-from .config import _CONFIG
 
 class KbNufftRealView(KbNufft):
     def __init__(self, im_size, grid_size = None):
@@ -28,37 +26,74 @@ class KbNufftRealView(KbNufft):
             real_view_buf = torch.view_as_real(buf)
             self.register_buffer(name, real_view_buf)
 
+class Slice2RotMat(nn.Module):
+    def __init__(self, size=18, pretrained=False):
+        super().__init__()
+        weights = 'DEFAULT' if pretrained else None
+        self.resnet = eval(f'resnet.resnet{size}')(weights=weights)
 
-class ResNet2RotMat(nn.Module):
-    def __init__(self, size=50, pretrained=False):
+        # Average the weights in the input channels...
+        conv1_weight = self.resnet.conv1.weight.data.mean(dim = 1, keepdim = True)
+        self.resnet.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        self.resnet.conv1.weight.data = conv1_weight
+        # Output 6D rotation matrix
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 6)
+    
+    def forward(self, img):
+        if img.shape[1] == 1:
+            img = img.repeat(1, 3, 1, 1)
+        embed = self.resnet(img)
+        rotmat = rotation_6d_to_matrix(embed)
+        return rotmat
+
+class Slice2RotMat_BIFPN(nn.Module):
+    def __init__(
+            self, 
+            size=18, 
+            pretrained=False,
+            num_features=64,
+            num_blocks=1,
+            output_channels={
+                "relu"   : 64,
+                "layer1" : 256,
+                "layer2" : 512,
+                "layer3" : 1024,
+                "layer4" : 2048,
+            },
+            num_levels=5,
+            regressor_in_features=64 * 64**2,
+            regressor_out_features=6,
+            scale=-1,
+            ):
         super().__init__()
         resnet_type = f"resnet{size}"
         self.backbone = ImageEncoder(resnet_type, pretrained)
+        self.num_levels = num_levels
+        self.scale = scale
 
         # Create the adapter layer between backbone and bifpn...
         self.backbone_to_bifpn = nn.ModuleList([
             DepthwiseSeparableConv2d(in_channels  = in_channels,
-                                     out_channels = _CONFIG.BIFPN.NUM_FEATURES,
+                                     out_channels = num_features,
                                      kernel_size  = 1,
                                      stride       = 1,
                                      padding      = 0) \
-            if _CONFIG.BIFPN.NUM_BLOCKS > 0 else       \
-            nn.Identity()
-            for _, in_channels in _CONFIG.BACKBONE.OUTPUT_CHANNELS.items()
-        ])[-_CONFIG.BIFPN.NUM_LEVELS:]    # Only consider fmaps from the most coarse level
+            if num_blocks > 0 else nn.Identity()
+            for _, in_channels in output_channels.items()
+        ])[-num_levels:]    # Only consider fmaps from the most coarse level
 
-        self.bifpn = BiFPN(num_blocks   = _CONFIG.BIFPN.NUM_BLOCKS,
-                           num_features = _CONFIG.BIFPN.NUM_FEATURES,
-                           num_levels   = _CONFIG.BIFPN.NUM_LEVELS) \
-                     if _CONFIG.BIFPN.NUM_BLOCKS > 0 else           \
+        self.bifpn = BiFPN(num_blocks   = num_blocks,
+                           num_features = num_features,
+                           num_levels   = num_levels) \
+                     if num_blocks > 0 else           \
                      nn.Identity()
 
-        self.regressor_head = nn.Linear(_CONFIG.REGRESSOR_HEAD.IN_FEATURES, _CONFIG.REGRESSOR_HEAD.OUT_FEATURES)
+        self.regressor_head = nn.Linear(regressor_in_features, regressor_out_features)
 
     def forward(self, x):
         # Calculate and save feature maps in multiple resolutions...
         fmap_in_backbone_layers = self.backbone(x)
-        fmap_in_backbone_layers = fmap_in_backbone_layers[-_CONFIG.BIFPN.NUM_LEVELS:]    # Only consider fmaps from the most coarse level
+        fmap_in_backbone_layers = fmap_in_backbone_layers[-self.num_levels:]    # Only consider fmaps from the most coarse level
 
         # Apply the BiFPN adapter...
         bifpn_input_list = []
@@ -70,7 +105,7 @@ class ResNet2RotMat(nn.Module):
         bifpn_output_list = self.bifpn(bifpn_input_list)
 
         # Use the N-th feature maps for regression...
-        regressor_input = bifpn_output_list[_CONFIG.RESNET2ROTMAT.SCALE]
+        regressor_input = bifpn_output_list[self.scale]
         B, C, H, W = regressor_input.shape
         regressor_input = regressor_input.view(B, C * H * W)
         logits = self.regressor_head(regressor_input)
@@ -89,13 +124,11 @@ class IntensityNet(nn.Module):
 class NeurOrient(nn.Module):
     def __init__(self, 
                  pixel_position_reciprocal, 
-                 over_sampling=1, 
-                 radial_scale_configs=None,
+                 over_sampling=1,
                  photons_per_pulse=1e13,
-                 lr=1e-3,
-                 weight_decay=1e-4,
-                 pretrained_backbone = True,
-                 path=None):
+                 use_bifpn=False,
+                 config_slice2rotmat={'size': 18, 'pretrained': True, 'use_bifpn': False},
+                 config_volpredictor={'dim_hidden': 256, 'num_layers': 5},):
         super().__init__()
 
         self.register_buffer('pixel_position_reciprocal', 
@@ -111,30 +144,21 @@ class NeurOrient(nn.Module):
         del real_mesh, reciprocal_mesh
 
         self.over_sampling = over_sampling
-        self.orientation_predictor = ResNet2RotMat(
-            size=_CONFIG.BACKBONE.RES_TYPE, pretrained=pretrained_backbone,
-        )
+        if use_bifpn:
+            self.orientation_predictor = Slice2RotMat_BIFPN(
+                size=config_slice2rotmat['size'], pretrained=config_slice2rotmat['pretrained'],
+            )
+        else:
+            self.orientation_predictor = Slice2RotMat(**config_slice2rotmat)
 
         # setup volume predictor
         self.volume_predictor = IntensityNet(
             dim_in=3,
-            dim_hidden=256,
+            dim_hidden=config_volpredictor['dim_hidden'],
             dim_out=1,
-            num_layers=5,
+            num_layers=config_volpredictor['num_layers'],
             final_activation=torch.nn.SiLU(),
         )
-
-        self.nufft_forward = KbNufftRealView(im_size=(self.image_dimension,)*3)
-
-        self.radial_scale_configs = radial_scale_configs
-        if self.radial_scale_configs is None:
-            self.register_buffer('radial_scale_factor', torch.ones(1, 1, (self.image_dimension,)*2))
-        else:
-            _mask = get_radial_scale_mask(
-                self.radial_scale_configs['q_values'], 
-                self.radial_scale_configs['radial_profile'], 
-                self.pixel_position_reciprocal.detach().cpu(), self.radial_scale_configs['alpha'])
-            self.register_buffer('radial_scale_factor', torch.from_numpy(_mask).unsqueeze(0))
 
         self.photons_per_pulse = photons_per_pulse
         self.loss_scale_factor = 1e14 / self.photons_per_pulse
@@ -157,22 +181,6 @@ class NeurOrient(nn.Module):
             grid_position_reciprocal = grid_position_reciprocal.T
         slices = self.volume_predictor(grid_position_reciprocal)
         return slices
-
-    def gen_slices(
-            self, ac, orientations
-            ):
-        """
-        Generate model slices using given reference orientations (in quaternion)
-        """
-        # Get q points (normalized by recirocal extent and oversampling)
-        HKL = gen_nonuniform_normalized_positions(
-            orientations, self.pixel_position_reciprocal, self.over_sampling)
-        ac = ac.real + 0j
-        if ac.dtype == torch.complex128: ac = torch.view_as_real(ac)
-        nuvect = self.nufft_forward(ac.unsqueeze(0).unsqueeze(0), HKL)[0,0]
-        if nuvect.dtype != torch.complex128: nuvect = torch.view_as_complex(nuvect)
-        model_slices = nuvect.real.view((-1,) + (self.image_dimension,)*2)
-        return model_slices
 
     def training_step(self, batch, batch_idx):
         slices_true = batch[0].to(self.device)
