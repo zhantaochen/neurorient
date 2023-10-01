@@ -1,8 +1,5 @@
-CHKPT:
-  DIRECTORY       : chkpts
-
 DATASET:
-  DIRECTORY         : '/pscratch/sd/z/zhantao/neurorient_repo/data'
+  DATASET_DIRECTORY : '/pscratch/sd/z/zhantao/neurorient_repo/data'
   PDB               : 1BXR
   POISSON           : true
   INCREASE_FACTOR   : 10
@@ -12,33 +9,30 @@ DATASET:
   NUM_WORKERS       : 10
   USES_RANDOM_PATCH : false
 
+
 MODEL:
+  OVERSAMPLING    : 1.
   BACKBONE:
-    RES_TYPE : 18
-    PRETRAINED : true
-  USE_BIFPN : false
+    RES_TYPE      : 18
+    PRETRAIN    : true
+  USE_BIFPN       : true
   BIFPN:
-    NUM_BLOCKS   : 3
-    NUM_FEATURES : 64
+    NUM_BLOCKS    : 5
+    NUM_FEATURES  : 128
 
 OPTIM:
-  LR           : 3e-4
-  WEIGHT_DECAY : 1e-4
-  LOSS_FUNC    : 'MSELoss'
+  LR              : 3e-4
+  WEIGHT_DECAY    : 1e-4
+  LOSS_FUNC       : 'MSELoss'
+  SCHEDULER: 
+    NAME          : 'CosineLRScheduler'
+    WARMUP_EPOCHS : 5
+    TOTAL_EPOCHS  : 1000
+    MIN_LR        : 1e-7
 
-LR_SCHEDULER:
-  PATIENCE      : 10
-  WARMUP_EPOCHS : 5
-  TOTAL_EPOCHS  : 1000
-  MIN_LR        : 1e-7
-
-LOGGING:
-  DIRECTORY       : logs
-  FILENAME_PREFIX : null
 
 TRAINING:
-  USES_MIXED_PRECISION : false
-  MAX_EPOCHS           : 1000
-  USE_DDP              : true
-  NUM_GPUS             : 2
-  BASE_DIRECTORY       : "/pscratch/sd/z/zhantao/neurorient_repo"
+  CHKPT_DIRECTORY       : chkpts
+  MAX_EPOCHS            : 1000
+  NUM_GPUS              : 4
+  BASE_DIRECTORY        : "/pscratch/sd/z/zhantao/neurorient_repo"

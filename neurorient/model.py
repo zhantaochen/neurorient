@@ -8,6 +8,7 @@ import lightning as L
 import numpy as np
 from torchkbnufft import KbNufft
 from pathlib import Path
+from copy import deepcopy
 
 from .image_encoder import ImageEncoder
 from .bifpn import DepthwiseSeparableConv2d, BiFPN
@@ -79,7 +80,7 @@ class Slice2RotMat_BIFPN(nn.Module):
                                      out_channels = num_features,
                                      kernel_size  = 1,
                                      stride       = 1,
-                                     padding      = 0) \
+                                     padding      = 0) 
             if num_blocks > 0 else nn.Identity()
             for _, in_channels in output_channels.items()
         ])[-num_levels:]    # Only consider fmaps from the most coarse level
@@ -147,9 +148,7 @@ class NeurOrient(nn.Module):
 
         self.over_sampling = over_sampling
         if use_bifpn:
-            self.orientation_predictor = Slice2RotMat_BIFPN(
-                size=config_slice2rotmat['size'], pretrained=config_slice2rotmat['pretrained'],
-            )
+            self.orientation_predictor = Slice2RotMat_BIFPN(**config_slice2rotmat)
         else:
             self.orientation_predictor = Slice2RotMat(**config_slice2rotmat)
 
@@ -315,12 +314,13 @@ class NeurOrientLightning(L.LightningModule):
             optimizer = optim.AdamW(self.parameters(), lr=self.configure_optimization['lr'], weight_decay=self.configure_optimization['weight_decay'])
             return optimizer
         else:
-            optimizer = optim.AdamW(self.parameters(), lr=self.configure_optimization['lr'], weight_decay=self.configure_optimization['weight_decay'])
+            _configure_optimization = deepcopy(self.configure_optimization)
+            optimizer = optim.AdamW(self.parameters(), lr=_configure_optimization['lr'], weight_decay=_configure_optimization['weight_decay'])
             scheduler = scheduler_dict[self.configure_optimization['scheduler'].pop('name')](
                 optimizer     = optimizer, 
-                warmup_epochs = self.configure_optimization['scheduler']['warmup_epochs'],
-                total_epochs  = self.configure_optimization['scheduler']['total_epochs'],
-                min_lr        = self.configure_optimization['scheduler']['min_lr'])
+                warmup_epochs = _configure_optimization['scheduler']['warmup_epochs'],
+                total_epochs  = _configure_optimization['scheduler']['total_epochs'],
+                min_lr        = _configure_optimization['scheduler']['min_lr'])
             return [optimizer,], [scheduler,]
     
     def get_figure_save_dir(self,):
