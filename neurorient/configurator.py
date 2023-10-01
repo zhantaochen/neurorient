@@ -132,3 +132,38 @@ class Configurator(dict):
                     merged[key] = value
 
         return merged
+
+    def dump_to_file(self, filepath):
+        """Dump the contents of the configurator to a text file."""
+        with open(filepath, 'w') as f:
+            self._write_dict_content(self, f, 0, True)
+
+    def _write_dict_content(self, current_dict, file_handle, indent_level, is_top_level=False):
+        """Recursive helper function to write the contents of the dictionary to a file."""
+        indent = '    '  # 2 spaces for indentation
+
+        # Determine the maximum key length for alignment
+        max_key_len = max([len(key) for key in current_dict.keys()])
+
+        first_entry = True
+        for key, value in current_dict.items():
+            # For top-level keys, add an empty line for clarity, but skip the very first one
+            if is_top_level and not first_entry:
+                file_handle.write("\n")
+            first_entry = False
+
+            if isinstance(value, Configurator):
+                file_handle.write(f"{indent * indent_level}{key.upper()}:\n")
+                self._write_dict_content(value, file_handle, indent_level + 1)
+            else:
+                if value is None:
+                    formatted_value = "null"
+                elif isinstance(value, bool):
+                    formatted_value = str(value).lower()
+                elif isinstance(value, str):
+                    formatted_value = f"'{value}'"
+                else:
+                    formatted_value = str(value)
+
+                # Writing the key-value pair with alignment
+                file_handle.write(f"{indent * indent_level}{key.upper().ljust(max_key_len)} : {formatted_value}\n")

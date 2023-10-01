@@ -10,7 +10,7 @@ DATASET:
   POISSON           : true
   INCREASE_FACTOR   : 10
   NUM_IMG           : 10000
-  FRAC_TRAIN        : 1.0
+  FRAC_TRAIN        : 0.9
   BATCH_SIZE        : 40
   NUM_WORKERS       : 10
   USES_RANDOM_PATCH : false
