@@ -1,12 +1,13 @@
+from .configurator import Configurator
 
-def prepare_Slice2RotMat_BIFPN_inputs(config, use_bifpn=False):
-    if use_bifpn:
+def prepare_Slice2RotMat_config(config):
+    if config.MODEL.USE_BIFPN:
         out_config = {
             'size': config.MODEL.BACKBONE.RES_TYPE, 
             'pretrained': config.MODEL.BACKBONE.PRETRAIN,
             'num_features': config.MODEL.BIFPN.NUM_FEATURES,
             'num_blocks': config.MODEL.BIFPN.NUM_BLOCKS,
-            'output_channels': config.MODEL.BACKBONE.OUTPUT_CHANNELS,
+            'output_channels': config.MODEL.BIFPN.OUTPUT_CHANNELS_FROM_BACKBONE,
             'num_levels': config.MODEL.BIFPN.NUM_LEVELS,
             'regressor_in_features': config.MODEL.REGRESSOR_HEAD.IN_FEATURES,
             'regressor_out_features': config.MODEL.REGRESSOR_HEAD.OUT_FEATURES,
@@ -18,3 +19,21 @@ def prepare_Slice2RotMat_BIFPN_inputs(config, use_bifpn=False):
             'pretrained': config.MODEL.BACKBONE.PRETRAIN
         }
     return out_config
+
+def _prepare_optimization_config(config_dict):
+    out_config = {}
+    
+    for key, value in config_dict.items():
+        # If the value is another dictionary, process it recursively
+        if isinstance(value, dict):
+            out_config[key.lower()] = _prepare_optimization_config(value)
+        else:
+            if key.lower() in ['lr', 'weight_decay', 'min_lr']:
+                out_config[key.lower()] = float(value)
+            else:
+                out_config[key.lower()] = value
+            
+    return out_config
+
+def prepare_optimization_config(config):
+    return _prepare_optimization_config(config.OPTIM.to_dict())

@@ -2,34 +2,33 @@ from .configurator import Configurator
 
 """
 This is the default configuration for the model.
+It contains all changable parameters for the model.
 The configuration will be overwritten by the user's configuration file.
 """
 _CONFIG = Configurator()
 with _CONFIG.enable_auto_create():
+    # the followings are mainly called in the utils_config.py
+    # to set up the default configuration for the model
     _CONFIG.MODEL.BACKBONE.RES_TYPE       = 18
     _CONFIG.MODEL.BACKBONE.PRETRAIN       = True
 
-    _CONFIG.MODEL.USE_BIFPN               = False
+    # whether to use the BiFPN module
+    _CONFIG.MODEL.USE_BIFPN               = True
 
+    # if use bifpn, the following parameters will be used
     _CONFIG.MODEL.BIFPN.NUM_BLOCKS        = 1
     _CONFIG.MODEL.BIFPN.NUM_FEATURES      = 64
     _CONFIG.MODEL.BIFPN.NUM_LEVELS        = 5
     _CONFIG.MODEL.BIFPN.RELU_INPLACE      = False
-
-    # [TODO] Need to set up resnet18 as well
-    _CONFIG.MODEL.BACKBONE.OUTPUT_CHANNELS = {
+    _CONFIG.MODEL.BIFPN.OUTPUT_CHANNELS_FROM_BACKBONE = {
         "relu"   : 64,
         "layer1" : 256,
         "layer2" : 512,
         "layer3" : 1024,
         "layer4" : 2048,
     }
-
     _CONFIG.MODEL.REGRESSOR_HEAD.IN_FEATURES  = _CONFIG.MODEL.BIFPN.NUM_FEATURES * 64 * 64
     _CONFIG.MODEL.REGRESSOR_HEAD.OUT_FEATURES = 6
-
-    _CONFIG.MODEL.LOSS_SCALE_FACTOR = 10
-
     _CONFIG.MODEL.RESNET2ROTMAT.SCALE = -1
 
 
