@@ -30,6 +30,10 @@ with _CONFIG.enable_auto_create():
     _CONFIG.MODEL.REGRESSOR_HEAD.IN_FEATURES  = _CONFIG.MODEL.BIFPN.NUM_FEATURES * 64 * 64
     _CONFIG.MODEL.REGRESSOR_HEAD.OUT_FEATURES = 6
     _CONFIG.MODEL.RESNET2ROTMAT.SCALE = -1
+    
+    # the following parameters are used to set up the volume predictor
+    _CONFIG.MODEL.INTENSITY_NET.DIM_HIDDEN = 256
+    _CONFIG.MODEL.INTENSITY_NET.NUM_LAYERS = 5
 
 
 """

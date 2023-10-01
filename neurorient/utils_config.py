@@ -20,6 +20,13 @@ def prepare_Slice2RotMat_config(config):
         }
     return out_config
 
+def prepare_IntensityNet_config(config):
+    out_config = {
+        'dim_hidden': int(config.MODEL.INTENSITY_NET.DIM_HIDDEN),
+        'num_layers': int(config.MODEL.INTENSITY_NET.NUM_LAYERS)
+    }
+    return out_config
+
 def _prepare_optimization_config(config_dict):
     out_config = {}
     

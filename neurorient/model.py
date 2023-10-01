@@ -131,7 +131,7 @@ class NeurOrient(nn.Module):
                  photons_per_pulse=1e13,
                  use_bifpn=False,
                  config_slice2rotmat={'size': 18, 'pretrained': True},
-                 config_volpredictor={'dim_hidden': 256, 'num_layers': 5},):
+                 config_intensitynet={'dim_hidden': 256, 'num_layers': 5},):
         super().__init__()
 
         self.register_buffer('pixel_position_reciprocal', 
@@ -155,9 +155,9 @@ class NeurOrient(nn.Module):
         # setup volume predictor
         self.volume_predictor = IntensityNet(
             dim_in=3,
-            dim_hidden=config_volpredictor['dim_hidden'],
+            dim_hidden=config_intensitynet['dim_hidden'],
             dim_out=1,
-            num_layers=config_volpredictor['num_layers'],
+            num_layers=config_intensitynet['num_layers'],
             final_activation=torch.nn.SiLU(),
         )
 
@@ -234,7 +234,7 @@ class NeurOrientLightning(L.LightningModule):
                  photons_per_pulse=1e13,
                  use_bifpn=False,
                  config_slice2rotmat={'size': 18, 'pretrained': True},
-                 config_volpredictor={'dim_hidden': 256, 'num_layers': 5},
+                 config_intensitynet={'dim_hidden': 256, 'num_layers': 5},
                  config_optimization={'lr': 1e-3, 'weight_decay': 1e-4, 'loss_func': 'MSELoss'}):
         super().__init__()
         self.save_hyperparameters()
@@ -245,7 +245,7 @@ class NeurOrientLightning(L.LightningModule):
             photons_per_pulse=photons_per_pulse,
             use_bifpn=use_bifpn,
             config_slice2rotmat=config_slice2rotmat,
-            config_volpredictor=config_volpredictor,
+            config_intensitynet=config_intensitynet,
         )
         # self.lr = config_optimization['lr']
         # self.weight_decay = config_optimization['weight_decay']
