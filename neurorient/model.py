@@ -16,7 +16,7 @@ from pytorch3d.transforms import rotation_6d_to_matrix
 from .external.siren_pytorch import SirenNet
 from .reconstruction.slicing import get_real_mesh, gen_nonuniform_normalized_positions
 from .utils_visualization import display_images_in_parallel
-
+from .lr_scheduler import CosineLRScheduler
 
 class KbNufftRealView(KbNufft):
     def __init__(self, im_size, grid_size = None):
@@ -223,6 +223,10 @@ class NeurOrient(nn.Module):
 
         return slices_pred
 
+scheduler_dict = {
+    'CosineLRScheduler': CosineLRScheduler,
+}
+
 class NeurOrientLightning(L.LightningModule):
     
     def __init__(self, 
@@ -244,10 +248,15 @@ class NeurOrientLightning(L.LightningModule):
             config_slice2rotmat=config_slice2rotmat,
             config_volpredictor=config_volpredictor,
         )
-        self.lr = config_optimization['lr']
-        self.weight_decay = config_optimization['weight_decay']
+        # self.lr = config_optimization['lr']
+        # self.weight_decay = config_optimization['weight_decay']
+        # self.loss_func = eval(f"torch.nn.{config_optimization['loss_func']}()")
+        
+        # for key, value in config_optimization.items():
+        #     self.__setattr__(key, value)
+        
+        self.configure_optimization = config_optimization
         self.loss_func = eval(f"torch.nn.{config_optimization['loss_func']}()")
-
         
     def training_step(self, batch, batch_idx):
         slices_true = batch[0].to(self.device)
@@ -300,12 +309,19 @@ class NeurOrientLightning(L.LightningModule):
             slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.model.loss_scale_factor
             display_images_in_parallel(slice_disp, slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_val.png')
             
-        # return {"val_loss": loss.item()}
-     
-        
+            
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        return optimizer
+        if not 'scheduler' in self.configure_optimization:
+            optimizer = optim.AdamW(self.parameters(), lr=self.configure_optimization['lr'], weight_decay=self.configure_optimization['weight_decay'])
+            return optimizer
+        else:
+            optimizer = optim.AdamW(self.parameters(), lr=self.configure_optimization['lr'], weight_decay=self.configure_optimization['weight_decay'])
+            scheduler = scheduler_dict[self.configure_optimization['scheduler'].pop('name')](
+                optimizer     = optimizer, 
+                warmup_epochs = self.configure_optimization['scheduler']['warmup_epochs'],
+                total_epochs  = self.configure_optimization['scheduler']['total_epochs'],
+                min_lr        = self.configure_optimization['scheduler']['min_lr'])
+            return [optimizer,], [scheduler,]
     
     def get_figure_save_dir(self,):
         if not hasattr(self, 'fig_path'):
