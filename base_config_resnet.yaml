@@ -1,8 +1,5 @@
 CHKPT:
-  TIMESTAMP_PREV  : null
-  EPOCH_PREV      : null
   DIRECTORY       : chkpts
-  FILENAME_PREFIX : null
 
 DATASET:
   DIRECTORY         : '/pscratch/sd/z/zhantao/neurorient_repo/data'
@@ -16,19 +13,18 @@ DATASET:
   USES_RANDOM_PATCH : false
 
 MODEL:
+  BACKBONE:
+    RES_TYPE : 18
+    PRETRAINED : true
+  USE_BIFPN : false
   BIFPN:
     NUM_BLOCKS   : 3
     NUM_FEATURES : 64
-  FREEZES_BACKBONE : false
-  USES_RANDOM_WEIGHTS : true
-
-LOSS:
-  SCALE_FACTOR : 10
 
 OPTIM:
   LR           : 3e-4
   WEIGHT_DECAY : 1e-4
-  GRAD_CLIP    : 1.0
+  LOSS_FUNC    : 'MSELoss'
 
 LR_SCHEDULER:
   PATIENCE      : 10
@@ -36,16 +32,13 @@ LR_SCHEDULER:
   TOTAL_EPOCHS  : 1000
   MIN_LR        : 1e-7
 
-DDP:
-  BACKEND                : nccl
-  USES_UNIQUE_WORLD_SEED : false
-
 LOGGING:
   DIRECTORY       : logs
   FILENAME_PREFIX : null
 
-MISC:
+TRAINING:
   USES_MIXED_PRECISION : false
   MAX_EPOCHS           : 1000
+  USE_DDP              : true
   NUM_GPUS             : 2
   BASE_DIRECTORY       : "/pscratch/sd/z/zhantao/neurorient_repo"

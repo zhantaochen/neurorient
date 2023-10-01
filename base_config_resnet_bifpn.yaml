@@ -1,0 +1,44 @@
+CHKPT:
+  DIRECTORY       : chkpts
+
+DATASET:
+  DIRECTORY         : '/pscratch/sd/z/zhantao/neurorient_repo/data'
+  PDB               : 1BXR
+  POISSON           : true
+  INCREASE_FACTOR   : 10
+  NUM_IMG           : 10000
+  FRAC_TRAIN        : 0.9
+  BATCH_SIZE        : 40
+  NUM_WORKERS       : 10
+  USES_RANDOM_PATCH : false
+
+MODEL:
+  BACKBONE:
+    RES_TYPE : 18
+    PRETRAINED : true
+  USE_BIFPN : false
+  BIFPN:
+    NUM_BLOCKS   : 3
+    NUM_FEATURES : 64
+
+OPTIM:
+  LR           : 3e-4
+  WEIGHT_DECAY : 1e-4
+  LOSS_FUNC    : 'MSELoss'
+
+LR_SCHEDULER:
+  PATIENCE      : 10
+  WARMUP_EPOCHS : 5
+  TOTAL_EPOCHS  : 1000
+  MIN_LR        : 1e-7
+
+LOGGING:
+  DIRECTORY       : logs
+  FILENAME_PREFIX : null
+
+TRAINING:
+  USES_MIXED_PRECISION : false
+  MAX_EPOCHS           : 1000
+  USE_DDP              : true
+  NUM_GPUS             : 2
+  BASE_DIRECTORY       : "/pscratch/sd/z/zhantao/neurorient_repo"
