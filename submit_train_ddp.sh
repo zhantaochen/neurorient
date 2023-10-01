@@ -4,10 +4,10 @@
 #SBATCH --qos debug
 #SBATCH --time 00:30:00
 #SBATCH --ntasks 1
-#SBATCH --ntasks-per-node 1
-#SBATCH --cpus-per-task 128
-#SBATCH --gpus-per-task 4
-#SBATCH --output=/pscratch/sd/z/zhantao/neurorient_repo/model/slurm_logs/%x.%j.out
+#SBATCH --ntasks-per-node 4
+#SBATCH --cpus-per-task 32
+#SBATCH --gpus-per-node 4
+#SBATCH --output=/pscratch/sd/z/zhantao/neurorient_repo/logs/%x.%j.out
 
 export SLURM_CPU_BIND="cores"
 

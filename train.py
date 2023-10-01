@@ -3,9 +3,6 @@
 This notebook is used to verify the configurator.py file.
 """
 
-%load_ext autoreload
-%autoreload 2
-
 # %%
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
@@ -13,9 +10,9 @@ This notebook is used to verify the configurator.py file.
 import os
 from pathlib import Path
 import yaml
-import logging
 import argparse
 import numpy as np
+import pprint
 
 import torch
 from torch.utils.data import TensorDataset
@@ -29,7 +26,8 @@ from neurorient.image_transform import RandomPatch
 from neurorient.configurator    import Configurator
 # from neurorient.lr_scheduler    import CosineLRScheduler
 from neurorient.config          import _CONFIG
-from neurorient.utils_config    import prepare_Slice2RotMat_config, prepare_optimization_config
+from neurorient.utils_config    import (
+    prepare_Slice2RotMat_config, prepare_IntensityNet_config, prepare_optimization_config)
 
 torch.autograd.set_detect_anomaly(False)    # [WARNING] Making it True may throw errors when using bfloat16
                                             # Reference: https://discuss.pytorch.org/t/convolutionbackward0-returned-nan-values-in-its-0th-output/175571/4
@@ -44,7 +42,7 @@ logger = Logger()
 # args = parser.parse_args()
 
 args = argparse.Namespace(
-    yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet_bifpn_coslr.yaml')
+    yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet.yaml')
 
 # %%
 # [[[ HYPER-PARAMERTERS ]]]
@@ -58,6 +56,7 @@ logger.log(f"loaded configuration from yaml_file: {fl_yaml}.")
 
 merged_config = CONFIG.merge_with_priority(_CONFIG, self_has_priority=True)
 logger.log(f"overwrite default model configurations with customed configurations.")
+
 
 if hasattr(merged_config.TRAINING, 'SEED'):
     L.seed_everything(merged_config.TRAINING.SEED)
@@ -147,6 +146,7 @@ dataloader_validate = torch.utils.data.DataLoader( dataset_validate,
 over_sampling = merged_config.MODEL.OVERSAMPLING
 photons_per_pulse = merged_config.DATASET.INCREASE_FACTOR * 1e12
 config_optimization = prepare_optimization_config(merged_config)
+config_intensitynet = prepare_IntensityNet_config(merged_config)
 config_slice2rotmat = prepare_Slice2RotMat_config(merged_config)
 model = NeurOrientLightning(
     spi_data['pixel_position_reciprocal'],
@@ -154,14 +154,20 @@ model = NeurOrientLightning(
     photons_per_pulse=photons_per_pulse,
     use_bifpn=merged_config.MODEL.USE_BIFPN,
     config_slice2rotmat=config_slice2rotmat,
+    config_intensitynet=config_intensitynet,
     config_optimization=config_optimization
 )
 logger.log( 
     'arguments being used in building the model:\n',
     f'over_sampling={over_sampling}\n',
     f'photons_per_pulse={photons_per_pulse:.2e}\n',
-    'config_slice2rotmat: ', '\n', config_slice2rotmat, '\n',
-    'config_optimization: ', '\n', config_optimization)
+    'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
+    'config_optimization: ', '\n', pprint.pformat(config_optimization))
+
+logger.log(
+    "model created with the following architecture:\n",
+    pprint.pformat(model)
+)
 
 # %%
 checkpoint_callback = ModelCheckpoint(
@@ -186,6 +192,6 @@ dump_log_fname = Path(os.path.join(trainer.logger.save_dir, 'lightning_logs', f'
 dump_log_fname.parent.mkdir(parents=True, exist_ok=True)
 logger.dump_to_file(dump_log_fname)
 
-# trainer.fit(model, dataloader_train, dataloader_validate)
+trainer.fit(model, dataloader_train, dataloader_validate)
 
 

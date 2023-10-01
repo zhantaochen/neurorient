@@ -23,8 +23,10 @@ class ImageEncoder(nn.Module):
             "resnet50" : resnet.resnet50,
         }
         assert backbone_type in self.backbone_dict, f"{backbone_type} is not supported!!!"
-
-        self.backbone = self.backbone_dict[backbone_type](pretrained = pretrained)
+        if backbone_type.find("resnet") > -1:
+            self.backbone = self.backbone_dict[backbone_type](weights='DEFAULT' if pretrained else None)
+        else:
+            raise NotImplementedError(f"{backbone_type} is not supported!!!")
 
         self.adjust_layers()
 

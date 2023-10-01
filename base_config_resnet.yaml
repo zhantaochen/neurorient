@@ -17,6 +17,7 @@ MODEL:
     PRETRAIN      : true
   USE_BIFPN       : false
 
+
 OPTIM:
   LR              : 3e-4
   WEIGHT_DECAY    : 1e-4
@@ -29,6 +30,7 @@ OPTIM:
 
 
 TRAINING:
+  SEED                  : 42
   CHKPT_DIRECTORY       : chkpts
   MAX_EPOCHS            : 1000
   NUM_GPUS              : 4
