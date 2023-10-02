@@ -22,6 +22,11 @@ OPTIM:
   LR              : 3e-4
   WEIGHT_DECAY    : 1e-4
   LOSS_FUNC       : 'MSELoss'
+  SCHEDULER: 
+    NAME          : 'CosineLRScheduler'
+    WARMUP_EPOCHS : 5
+    TOTAL_EPOCHS  : 1000
+    MIN_LR        : 1e-7
 
 
 TRAINING:

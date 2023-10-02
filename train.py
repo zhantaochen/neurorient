@@ -36,13 +36,13 @@ logger = Logger()
 
 # %%
 # [[[ ARG ]]]
-# parser = argparse.ArgumentParser(description="Load training configuration from a YAML file to a dictionary.")
-# parser.add_argument("yaml_file", help="Path to the YAML file")
+parser = argparse.ArgumentParser(description="Load training configuration from a YAML file to a dictionary.")
+parser.add_argument('-yf', '--yaml_file', help="Path to the YAML file", dest='yaml_file', type=str, required=True)
 
-# args = parser.parse_args()
+args = parser.parse_args()
 
-args = argparse.Namespace(
-    yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet.yaml')
+# args = argparse.Namespace(
+#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet.yaml')
 
 # %%
 # [[[ HYPER-PARAMERTERS ]]]
