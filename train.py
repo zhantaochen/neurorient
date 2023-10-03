@@ -20,7 +20,7 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 
 from neurorient.model           import NeurOrientLightning
-from neurorient.data            import TensorDatasetWithTransform
+from neurorient.dataset         import TensorDatasetWithTransform
 from neurorient.logger          import Logger
 from neurorient.image_transform import RandomPatch
 from neurorient.configurator    import Configurator

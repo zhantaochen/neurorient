@@ -1,12 +1,16 @@
 import numpy as np
 import torch
+from sklearn.neighbors import KernelDensity
 
 class RandomPatch:
     """ Randomly place num_patch patch with the size of size_y * size_x onto an image.
     """
 
-    def __init__(self, num_patch, size_patch_min, size_patch_max=None,
-                                  returns_mask = False):
+    def __init__(self, 
+                 num_patch, 
+                 size_patch_min, 
+                 size_patch_max=None,
+                 returns_mask = False):
         self.num_patch    = num_patch                   # ...Number of patches
         self.size_patch_min = size_patch_min                # ...Size of the patch in y dimension
         if size_patch_max < size_patch_min or size_patch_max is None:
@@ -51,4 +55,24 @@ class RandomPatch:
         # Parentheses are necessary
         output = img_masked if not self.returns_mask else (img_masked, mask)
 
+        return output
+
+class PhotonFluctuation:
+    """ Add photon fluctuation to the image.
+    """
+    def __init__(self, stats_file='data/image_distribution_by_photon_count.npy'):
+        image_distribution_by_photon_count = np.load(stats_file)
+        p_counts, probabilities = image_distribution_by_photon_count
+        p_counts_mean = (p_counts * probabilities).sum() / probabilities.sum()
+        p_counts_relative = (p_counts / p_counts_mean).reshape(-1, 1)
+        self.kde = KernelDensity(
+                kernel='gaussian', 
+                bandwidth=1.0*np.diff(p_counts_relative.squeeze()).mean()
+            ).fit(p_counts_relative, sample_weight=probabilities)
+        return None
+
+    def __call__(self, img):
+        num_samples = img.shape[0]
+        scale_factors = torch.from_numpy(self.kde.sample(num_samples).squeeze()).to(img.device)
+        output = torch.einsum('b...,b -> b...', img, scale_factors)
         return output
