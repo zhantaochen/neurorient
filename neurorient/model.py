@@ -54,6 +54,7 @@ class Slice2RotMat_BIFPN(nn.Module):
             self, 
             size=18, 
             pretrained=False,
+            input_size=(128, 128),
             num_features=64,
             num_blocks=1,
             output_channels={
@@ -90,7 +91,7 @@ class Slice2RotMat_BIFPN(nn.Module):
                      if num_blocks > 0 else           \
                      nn.Identity()
         with torch.no_grad():
-            _x = torch.randn(1, 1, 128, 128)
+            _x = torch.randn(1, 1, *input_size)
             _out_shape = self.forward_without_regressor(_x).shape
 
         self.regressor_head = nn.Linear(_out_shape[-1], regressor_out_features)
@@ -155,6 +156,7 @@ class NeurOrient(nn.Module):
 
         self.over_sampling = over_sampling
         if use_bifpn:
+            config_slice2rotmat['input_size'] = (self.image_dimension.item(),)*2
             self.orientation_predictor = Slice2RotMat_BIFPN(**config_slice2rotmat)
         else:
             self.orientation_predictor = Slice2RotMat(**config_slice2rotmat)
