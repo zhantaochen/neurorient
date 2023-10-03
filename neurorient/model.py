@@ -90,10 +90,14 @@ class Slice2RotMat_BIFPN(nn.Module):
                            num_levels   = num_levels) \
                      if num_blocks > 0 else           \
                      nn.Identity()
+        with torch.no_grad():
+            _x = torch.randn(1, 1, 128, 128)
+            _out_shape = self.forward_without_regressor(_x).shape
 
-        self.regressor_head = nn.Linear(regressor_in_features, regressor_out_features)
+        self.regressor_head = nn.Linear(_out_shape[-1], regressor_out_features)
+        del _x, _out_shape
 
-    def forward(self, x):
+    def forward_without_regressor(self, x):
         # Calculate and save feature maps in multiple resolutions...
         fmap_in_backbone_layers = self.backbone(x)
         fmap_in_backbone_layers = fmap_in_backbone_layers[-self.num_levels:]    # Only consider fmaps from the most coarse level
@@ -111,6 +115,10 @@ class Slice2RotMat_BIFPN(nn.Module):
         regressor_input = bifpn_output_list[self.scale]
         B, C, H, W = regressor_input.shape
         regressor_input = regressor_input.view(B, C * H * W)
+        return regressor_input
+        
+    def forward(self, x):
+        regressor_input = self.forward_without_regressor(x)
         logits = self.regressor_head(regressor_input)
 
         rotmat = rotation_6d_to_matrix(logits)
