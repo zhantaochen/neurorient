@@ -64,7 +64,6 @@ class Slice2RotMat_BIFPN(nn.Module):
                 "layer4" : 2048,
             },
             num_levels=5,
-            regressor_in_features=64 * 64**2,
             regressor_out_features=6,
             scale=-1,
             ):
