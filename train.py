@@ -22,7 +22,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from neurorient.model           import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform
 from neurorient.logger          import Logger
-from neurorient.image_transform import RandomPatch
+from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, BeamStopMask
 from neurorient.configurator    import Configurator
 # from neurorient.lr_scheduler    import CosineLRScheduler
 from neurorient.config          import _CONFIG
@@ -42,7 +42,7 @@ parser.add_argument('-yf', '--yaml_file', help="Path to the YAML file", dest='ya
 args = parser.parse_args()
 
 # args = argparse.Namespace(
-#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet.yaml')
+#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet_coslr_fpc.yaml')
 
 # %%
 # [[[ HYPER-PARAMERTERS ]]]
@@ -73,18 +73,14 @@ logger.log(f"checkpoints will be saved to {dir_chkpt}.")
 dir_dataset       = merged_config.DATASET.DATASET_DIRECTORY
 # necessary info to fetch data file name
 pdb               = merged_config.DATASET.PDB
-poisson           = merged_config.DATASET.POISSON
-increase_factor   = merged_config.DATASET.INCREASE_FACTOR
 num_images        = merged_config.DATASET.NUM_IMG
-data_file_name = f'{pdb}_increase{increase_factor}_poisson{poisson}_num{num_images//1000}K.pt'
+data_file_name = f'{pdb}_increase1_poissonFalse_num{num_images//1000}K.pt'
 logger.log(f'data read from {data_file_name}')
 
 # necessary info to define datasets
 frac_train        = merged_config.DATASET.FRAC_TRAIN
 size_batch        = merged_config.DATASET.BATCH_SIZE
 num_workers       = merged_config.DATASET.NUM_WORKERS
-uses_random_patch = merged_config.DATASET.USES_RANDOM_PATCH
-
 
 # ...Training
 max_epochs           = merged_config.TRAINING.MAX_EPOCHS
@@ -96,33 +92,63 @@ logger.log(f'training the model with {max_epochs} epochs and {num_gpus} GPUs')
 spi_data = torch.load(os.path.join(dir_dataset, data_file_name))
 
 # Set global seed and split data...
-data              = spi_data['intensities']
+data              = spi_data['intensities'] * merged_config.DATASET.INCREASE_FACTOR
 spi_data_train    = data[:int(len(data) * frac_train) ]
 spi_data_validate = data[ int(len(data) * frac_train):]
 
 # Set world seed and set up transformation rules
-if uses_random_patch:
-    num_patch    = 200
-    size_patch_y = 5
-    size_patch_x = 5
-    var_patch_y  = 0.2
-    var_patch_x  = 0.2
-    returns_mask = False
-    random_patch = RandomPatch(num_patch    = num_patch,
-                               size_patch_y    = size_patch_y,
-                               size_patch_x    = size_patch_x,
-                               var_patch_y     = var_patch_y,
-                               var_patch_x     = var_patch_x,
-                               returns_mask    = returns_mask)
-    transform_list   = ( random_patch, )
-    dataset_train    = TensorDatasetWithTransform(spi_data_train.unsqueeze(1).numpy(), transform_list = transform_list, uses_norm = False)
-    dataset_validate = TensorDatasetWithTransform(spi_data_validate.unsqueeze(1).numpy(), transform_list = transform_list, uses_norm = False)
+uses_random_patch = merged_config.DATASET.USES_RANDOM_PATCH
+
+transform_list = []
+
+if merged_config.DATASET.USES_PHOTON_FLUCTUATION:
+    # set up photon fluctuation transformation
+    photon_fluctuation = PhotonFluctuation('neurorient/data/image_distribution_by_photon_count.npy')
+    transform_list.append(photon_fluctuation)
+    logger.log(f'transformation: photon fluctuation applied to training and validation datasets.')
+
+
+if merged_config.DATASET.USES_POISSON_NOISE:
+    poisson_noise = PoissonNoise()
+    transform_list.append(poisson_noise)
+    logger.log(f'transformation: poisson noise applied to training and validation datasets.')
+
+
+if merged_config.DATASET.USES_BEAM_STOP_MASK:
+    beam_stop_mask = BeamStopMask(width              = merged_config.DATASET.BEAM_STOP_MASK.WIDTH, 
+                                  radius             = merged_config.DATASET.BEAM_STOP_MASK.RADIUS, 
+                                  input_size         = data.shape[-2:],
+                                  mask_orientation   = merged_config.DATASET.BEAM_STOP_MASK.ORIENTATION,
+                                  returns_mask       = True)
+    transform_list.append(beam_stop_mask)
+    logger.log(f'transformation: beam stop mask applied to training and validation datasets.')
+    
+    
+if merged_config.DATASET.USES_RANDOM_PATCH:
+    # set up random patch transformation
+    num_patch       = merged_config.DATASET.PATCH.NUM_PATCHES
+    size_patch_min  = merged_config.DATASET.PATCH.SIZE_PATCH_MIN
+    size_patch_max  = merged_config.DATASET.PATCH.SIZE_PATCH_MAX
+    random_patch = RandomPatch(num_patch       = num_patch,
+                               size_patch_min  = size_patch_min,
+                               size_patch_max  = size_patch_max,
+                               returns_mask    = True)
+    transform_list.append(random_patch)
+    logger.log(f'transformation: random patch applied to training and validation datasets.')
+    
+    
+if len(transform_list) > 0:
+    transform_list   = tuple(transform_list)
+    dataset_train    = TensorDatasetWithTransform(spi_data_train.unsqueeze(1), transform_list = transform_list)
+    dataset_validate = TensorDatasetWithTransform(spi_data_validate.unsqueeze(1), transform_list = transform_list)
+    logger.log(f'{len(transform_list)} transformations applied to training and validation datasets.')
 else:
     dataset_train    = TensorDataset(spi_data_train.unsqueeze(1))
     dataset_validate = TensorDataset(spi_data_validate.unsqueeze(1))
+    logger.log(f'NO random patch transformation applied to training and validation datasets.')
 
 logger.log(f'created training dataset with {len(dataset_train)} images and validation dataset with {len(dataset_validate)} images.')
-    
+
 
 # lightning will handle the samplers for those dataloaders
 sampler_train    = None

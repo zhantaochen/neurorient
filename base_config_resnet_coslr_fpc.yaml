@@ -7,10 +7,10 @@ DATASET:
   BATCH_SIZE        : 40
   NUM_WORKERS       : 10
 
-  USES_PHOTON_FLUCTUATION : false
+  USES_PHOTON_FLUCTUATION : true
   USES_POISSON_NOISE      : true
   USES_BEAM_STOP_MASK     : false
-  USES_RANDOM_PATCH       : false
+  USES_RANDOM_PATCH       : true
 
   PATCH:
     NUM_PATCHES     : 200
@@ -43,7 +43,7 @@ OPTIM:
 
 TRAINING:
   SEED                  : 42
-  CHKPT_DIRECTORY       : chkpts
+  CHKPT_DIRECTORY       : "experiments/transformations"
   MAX_EPOCHS            : 1000
   NUM_GPUS              : 4
   BASE_DIRECTORY        : "/pscratch/sd/z/zhantao/neurorient_repo"
