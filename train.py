@@ -42,7 +42,7 @@ parser.add_argument('-yf', '--yaml_file', help="Path to the YAML file", dest='ya
 args = parser.parse_args()
 
 # args = argparse.Namespace(
-#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet_coslr_fpc.yaml')
+#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet_coslr_fpcb.yaml')
 
 # %%
 # [[[ HYPER-PARAMERTERS ]]]
@@ -103,13 +103,15 @@ transform_list = []
 
 if merged_config.DATASET.USES_PHOTON_FLUCTUATION:
     # set up photon fluctuation transformation
-    photon_fluctuation = PhotonFluctuation('neurorient/data/image_distribution_by_photon_count.npy')
+    photon_fluctuation = PhotonFluctuation(
+        'neurorient/data/image_distribution_by_photon_count.npy',
+        return_mask=False)
     transform_list.append(photon_fluctuation)
     logger.log(f'transformation: photon fluctuation applied to training and validation datasets.')
 
 
 if merged_config.DATASET.USES_POISSON_NOISE:
-    poisson_noise = PoissonNoise()
+    poisson_noise = PoissonNoise(return_mask=False)
     transform_list.append(poisson_noise)
     logger.log(f'transformation: poisson noise applied to training and validation datasets.')
 
@@ -119,7 +121,7 @@ if merged_config.DATASET.USES_BEAM_STOP_MASK:
                                   radius             = merged_config.DATASET.BEAM_STOP_MASK.RADIUS, 
                                   input_size         = data.shape[-2:],
                                   mask_orientation   = merged_config.DATASET.BEAM_STOP_MASK.ORIENTATION,
-                                  returns_mask       = True)
+                                  return_mask        = True)
     transform_list.append(beam_stop_mask)
     logger.log(f'transformation: beam stop mask applied to training and validation datasets.')
     
@@ -132,7 +134,7 @@ if merged_config.DATASET.USES_RANDOM_PATCH:
     random_patch = RandomPatch(num_patch       = num_patch,
                                size_patch_min  = size_patch_min,
                                size_patch_max  = size_patch_max,
-                               returns_mask    = True)
+                               return_mask     = True)
     transform_list.append(random_patch)
     logger.log(f'transformation: random patch applied to training and validation datasets.')
     
