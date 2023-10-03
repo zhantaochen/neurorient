@@ -16,9 +16,9 @@ with _CONFIG.enable_auto_create():
     _CONFIG.MODEL.USE_BIFPN               = True
 
     # if use bifpn, the following parameters will be used
-    _CONFIG.MODEL.BIFPN.NUM_BLOCKS        = 1
+    _CONFIG.MODEL.BIFPN.NUM_BLOCKS        = 3
     _CONFIG.MODEL.BIFPN.NUM_FEATURES      = 64
-    _CONFIG.MODEL.BIFPN.NUM_LEVELS        = 5
+    _CONFIG.MODEL.BIFPN.NUM_LEVELS        = 3
     _CONFIG.MODEL.BIFPN.RELU_INPLACE      = False
     _CONFIG.MODEL.BIFPN.OUTPUT_CHANNELS_FROM_BACKBONE = {
         "relu"   : 64,
@@ -27,7 +27,8 @@ with _CONFIG.enable_auto_create():
         "layer3" : 1024,
         "layer4" : 2048,
     }
-    _CONFIG.MODEL.REGRESSOR_HEAD.IN_FEATURES  = _CONFIG.MODEL.BIFPN.NUM_FEATURES * 64 * 64
+    # TODO: REMOVE THIS
+    _CONFIG.MODEL.REGRESSOR_HEAD.IN_FEATURES  = _CONFIG.MODEL.BIFPN.NUM_FEATURES * 4 * 4
     _CONFIG.MODEL.REGRESSOR_HEAD.OUT_FEATURES = 6
     _CONFIG.MODEL.RESNET2ROTMAT.SCALE = -1
     
