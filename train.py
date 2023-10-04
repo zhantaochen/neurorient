@@ -210,15 +210,15 @@ ddp = DDPStrategy(process_group_backend="nccl")
 trainer = L.Trainer(
     max_epochs=max_epochs, accelerator='gpu', strategy=ddp, deterministic=True,
     callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=10)],
-    log_every_n_steps=1, devices=-1,
+    log_every_n_steps=1, devices=num_gpus,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 
 # dump configuration to file for later reference
-dump_yaml_fname = Path(os.path.join(trainer.logger.save_dir, 'lightning_logs', f'version_{trainer.logger.version}', 'input.yaml'))
+dump_yaml_fname = Path(os.path.join(trainer.logger.log_dir, 'input.yaml'))
 dump_yaml_fname.parent.mkdir(parents=True, exist_ok=True)
 merged_config.dump_to_file(dump_yaml_fname)
 
-dump_log_fname = Path(os.path.join(trainer.logger.save_dir, 'lightning_logs', f'version_{trainer.logger.version}', 'log.txt'))
+dump_log_fname = Path(os.path.join(trainer.logger.log_dir, 'log.txt'))
 dump_log_fname.parent.mkdir(parents=True, exist_ok=True)
 logger.dump_to_file(dump_log_fname)
 
