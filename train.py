@@ -75,9 +75,7 @@ dir_dataset       = merged_config.DATASET.DATASET_DIRECTORY
 # necessary info to fetch data file name
 pdb               = merged_config.DATASET.PDB
 num_images        = merged_config.DATASET.NUM_IMG
-increase_factor   = merged_config.DATASET.INCREASE_FACTOR
-use_poisson_noise = merged_config.DATASET.USES_POISSON_NOISE
-data_file_name = f'{pdb}_increase{increase_factor}_poisson{use_poisson_noise}_num{num_images//1000}K.pt'
+data_file_name = f'{pdb}_increase1_poissonFalse_num{num_images//1000}K.pt'
 logger.log(f'data read from {data_file_name}')
 
 # necessary info to define datasets
