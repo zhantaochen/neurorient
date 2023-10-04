@@ -45,8 +45,9 @@ class ImageEncoder(nn.Module):
         self.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
         self.backbone.conv1.weight.data = conv1_weight
 
-        # Remove the fc layer
-        self.backbone.fc = nn.Identity()
+        # Ignore the avgpool and fc layer
+        self.backbone.avgpool = nn.Identity()
+        self.backbone.fc      = nn.Identity()
 
 
     def forward(self, x):
