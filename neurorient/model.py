@@ -57,13 +57,6 @@ class Slice2RotMat_BIFPN(nn.Module):
             input_size=(128, 128),
             num_features=64,
             num_blocks=1,
-            output_channels={
-                "relu"   : 64,
-                "layer1" : 256,
-                "layer2" : 512,
-                "layer3" : 1024,
-                "layer4" : 2048,
-            },
             num_levels=5,
             regressor_out_features=6,
             scale=-1,
@@ -75,6 +68,7 @@ class Slice2RotMat_BIFPN(nn.Module):
         self.scale = scale
 
         # Create the adapter layer between backbone and bifpn...
+        output_channels = self.backbone.output_channels
         self.backbone_to_bifpn = nn.ModuleList([
             DepthwiseSeparableConv2d(in_channels  = in_channels,
                                      out_channels = num_features,
