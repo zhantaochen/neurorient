@@ -10,7 +10,7 @@ class Logger:
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         # Join all the provided strings and append to the buffer
-        message = f"[{timestamp}] " + " ".join(str(arg) for arg in args)
+        message = f"[{timestamp}] " + " ".join(str(arg) for arg in args) + '\n'
         self._log_buffer.append(message)
         if print_message:
             print(message)

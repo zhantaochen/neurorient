@@ -18,6 +18,7 @@ import torch
 from torch.utils.data import TensorDataset
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
+from lightning.pytorch.strategies import DDPStrategy
 
 from neurorient.model           import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform
@@ -42,7 +43,7 @@ parser.add_argument('-yf', '--yaml_file', help="Path to the YAML file", dest='ya
 args = parser.parse_args()
 
 # args = argparse.Namespace(
-#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet_coslr_fpcb.yaml')
+#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet_coslr_fpc.yaml')
 
 # %%
 # [[[ HYPER-PARAMERTERS ]]]
@@ -205,10 +206,11 @@ checkpoint_callback = ModelCheckpoint(
 
 torch.set_float32_matmul_precision('high')
 
+ddp = DDPStrategy(process_group_backend="nccl")
 trainer = L.Trainer(
-    max_epochs=max_epochs, accelerator='gpu',
+    max_epochs=max_epochs, accelerator='gpu', strategy=ddp, deterministic=True,
     callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=10)],
-    log_every_n_steps=1, devices=num_gpus,
+    log_every_n_steps=1, devices=-1,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 
 # dump configuration to file for later reference

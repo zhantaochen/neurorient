@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --account lcls
 #SBATCH --constraint gpu
-#SBATCH --qos regular
-#SBATCH --time 6:00:00
+#SBATCH --qos debug
+#SBATCH --time 00:05:00
 #SBATCH --ntasks 4
 #SBATCH --ntasks-per-node 4
 #SBATCH --cpus-per-task 32
@@ -14,6 +14,6 @@ export SLURM_CPU_BIND="cores"
 module load python
 source activate /pscratch/sd/z/zhantao/conda/om
 
-srun python train.py --yaml_file base_config_resnet_coslr_fpb.yaml
+srun python train.py --yaml_file base_config_resnet_coslr_p.yaml
 
 # perform any cleanup or short post-processing here

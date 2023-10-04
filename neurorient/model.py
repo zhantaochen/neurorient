@@ -268,13 +268,13 @@ class NeurOrientLightning(L.LightningModule):
         
     def training_step(self, batch, batch_idx):
         if isinstance(batch, dict):
-            slices_true = batch['image'].to(self.device).to(self.dtype)
-            input_mask  = batch['input_mask'].to(self.device).bool()
-            general_mask = batch['general_mask'].to(self.device).bool()
+            slices_true = batch['image'].to(self.dtype)
+            input_mask  = batch['input_mask'].bool()
+            general_mask = batch['general_mask'].bool()
         else:
-            slices_true = batch[0].to(self.device).to(self.dtype)
-            input_mask = torch.ones_like(slices_true).bool().to(self.device).bool()
-            general_mask = torch.ones_like(slices_true).bool().to(self.device).bool()
+            slices_true = batch[0].to(self.dtype)
+            input_mask = torch.ones_like(slices_true).bool().bool()
+            general_mask = torch.ones_like(slices_true).bool().bool()
 
         # Apply input and general masks and loss scale factor to get input slices.
         slices_input  = input_mask  * general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
@@ -316,13 +316,13 @@ class NeurOrientLightning(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         if isinstance(batch, dict):
-            slices_true = batch['image'].to(self.device).to(self.dtype)
-            input_mask  = batch['input_mask'].to(self.device).bool()
-            general_mask = batch['general_mask'].to(self.device).bool()
+            slices_true = batch['image'].to(self.dtype)
+            input_mask  = batch['input_mask'].bool()
+            general_mask = batch['general_mask'].bool()
         else:
-            slices_true = batch[0].to(self.device).to(self.dtype)
-            input_mask = torch.ones_like(slices_true).bool().to(self.device).bool()
-            general_mask = torch.ones_like(slices_true).bool().to(self.device).bool()
+            slices_true = batch[0].to(self.dtype)
+            input_mask = torch.ones_like(slices_true).bool().bool()
+            general_mask = torch.ones_like(slices_true).bool().bool()
 
         # Apply input and general masks and loss scale factor to get input slices.
         slices_input  = input_mask  * general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
@@ -330,7 +330,7 @@ class NeurOrientLightning(L.LightningModule):
         slices_output = general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
 
         # predict orientations from images
-        orientations = self.model.image_to_orientation(slices_input, sync_dist=True)
+        orientations = self.model.image_to_orientation(slices_input)
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
         HKL = gen_nonuniform_normalized_positions(
@@ -340,7 +340,7 @@ class NeurOrientLightning(L.LightningModule):
 
         # We don't want to compare the general masked area
         loss = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_output[general_mask.bool()].cpu())
-        self.log("val_loss", loss.item(), prog_bar=True)
+        self.log("val_loss", loss.item(), prog_bar=True, sync_dist=True)
 
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
