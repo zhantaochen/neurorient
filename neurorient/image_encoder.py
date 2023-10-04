@@ -38,6 +38,27 @@ class ImageEncoder(nn.Module):
             "layer4" : True,
         }
 
+        self.output_chanels = self.get_output_channels(resnet_type)
+
+
+    def get_output_channels(self, resnet_type):
+        return {
+            'resnet18' : {
+                "relu"   : 64,
+                "layer1" : 64,
+                "layer2" : 128,
+                "layer3" : 256,
+                "layer4" : 512,
+            },
+            'resnet50' : {
+                "relu"   : 64,
+                "layer1" : 256,
+                "layer2" : 512,
+                "layer3" : 1024,
+                "layer4" : 2048,
+            }
+        }[resnet_type]
+
 
     def adjust_layers(self):
         # Average the weights in the input channels...
