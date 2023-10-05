@@ -208,7 +208,7 @@ torch.set_float32_matmul_precision('high')
 
 ddp = DDPStrategy(process_group_backend="nccl")
 trainer = L.Trainer(
-    max_epochs=max_epochs, accelerator='gpu', strategy=ddp, deterministic=True,
+    max_epochs=max_epochs, accelerator='gpu', strategy=ddp,
     callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=10)],
     log_every_n_steps=1, devices=num_gpus,
     enable_checkpointing=True, default_root_dir=dir_chkpt)

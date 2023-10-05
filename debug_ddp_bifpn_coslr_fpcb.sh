@@ -14,6 +14,6 @@ export SLURM_CPU_BIND="cores"
 module load python
 source activate /pscratch/sd/z/zhantao/conda/om
 
-srun python train.py --yaml_file base_config_resnet_coslr_p.yaml
+srun python train.py --yaml_file base_config_bifpn_coslr_fpcb.yaml
 
 # perform any cleanup or short post-processing here
