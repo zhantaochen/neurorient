@@ -20,13 +20,6 @@ with _CONFIG.enable_auto_create():
     _CONFIG.MODEL.BIFPN.NUM_FEATURES      = 64
     _CONFIG.MODEL.BIFPN.NUM_LEVELS        = 3
     _CONFIG.MODEL.BIFPN.RELU_INPLACE      = False
-    _CONFIG.MODEL.BIFPN.OUTPUT_CHANNELS_FROM_BACKBONE = {
-        "relu"   : 64,
-        "layer1" : 256,
-        "layer2" : 512,
-        "layer3" : 1024,
-        "layer4" : 2048,
-    }
     _CONFIG.MODEL.REGRESSOR_HEAD.OUT_FEATURES = 6
     _CONFIG.MODEL.RESNET2ROTMAT.SCALE = -1
     

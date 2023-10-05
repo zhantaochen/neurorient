@@ -38,8 +38,13 @@ class ImageEncoder(nn.Module):
             "layer4" : True,
         }
 
-        self.output_chanels = self.get_output_channels(resnet_type)
+        self.backbone_type   = backbone_type
 
+    # The attribute assigned in the init seems not working,
+    # we need to define the property to make it work.
+    @property
+    def output_channels(self):
+        return self.get_output_channels(self.backbone_type)
 
     def get_output_channels(self, resnet_type):
         return {

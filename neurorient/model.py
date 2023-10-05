@@ -371,6 +371,6 @@ class NeurOrientLightning(L.LightningModule):
     def get_figure_save_dir(self,):
         if not hasattr(self, 'fig_path'):
             self.fig_path = Path(
-                os.path.join(self.trainer.logger.save_dir, 'lightning_logs', f'version_{self.trainer.logger.version}', 'figures')
+                os.path.join(self.trainer.logger.log_dir, 'figures')
             )
             self.fig_path.mkdir(parents=True, exist_ok=True)
