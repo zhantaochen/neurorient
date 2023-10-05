@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --account lcls
 #SBATCH --constraint gpu
-#SBATCH --qos regular
-#SBATCH --time 6:00:00
+#SBATCH --qos debug
+#SBATCH --time 00:05:00
 #SBATCH --ntasks 4
 #SBATCH --ntasks-per-node 4
 #SBATCH --cpus-per-task 32

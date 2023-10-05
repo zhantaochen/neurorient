@@ -262,18 +262,18 @@ class NeurOrientLightning(L.LightningModule):
         
     def training_step(self, batch, batch_idx):
         if isinstance(batch, dict):
-            slices_true = batch['image'].to(self.device).to(self.dtype)
-            input_mask  = batch['input_mask'].to(self.device).to(self.dtype)
-            general_mask = batch['general_mask'].to(self.device).to(self.dtype)
+            slices_true = batch['image'].to(self.dtype)
+            input_mask  = batch['input_mask'].bool()
+            general_mask = batch['general_mask'].bool()
         else:
-            slices_true = batch[0].to(self.device).to(self.dtype)
-            input_mask = 1.
-            general_mask = 1.
+            slices_true = batch[0].to(self.dtype)
+            input_mask = torch.ones_like(slices_true).bool().bool()
+            general_mask = torch.ones_like(slices_true).bool().bool()
 
         # Apply input and general masks and loss scale factor to get input slices.
-        slices_input  = torch.log(input_mask  * general_mask * slices_true * self.model.loss_scale_factor + 1.)
+        slices_input  = input_mask  * general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
         # Apply general mask and loss scale factor to get target slices.
-        slices_output = torch.log(general_mask * slices_true * self.model.loss_scale_factor + 1.)
+        slices_output = general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
 
         # predict orientations from images
         orientations = self.model.image_to_orientation(slices_input)
@@ -285,8 +285,8 @@ class NeurOrientLightning(L.LightningModule):
         slices_pred = self.model.predict_slice(HKL).view((-1, 1,) + (self.model.image_dimension,)*2)
 
         # We don't want to compare the general masked area
-        loss = self.loss_func((general_mask * slices_pred).cpu(), slices_output.cpu())
-        self.log("train_loss", loss.item())
+        loss = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_output[general_mask.bool()].cpu())
+        self.log("train_loss", loss.item(), prog_bar=True, sync_dist=True)
 
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
@@ -302,7 +302,7 @@ class NeurOrientLightning(L.LightningModule):
             if isinstance(general_mask, torch.Tensor):
                 slice_disp_output = (torch.exp(slices_output[:num_figs]) - 1) / self.model.loss_scale_factor
                 display_images_in_parallel(general_mask[:num_figs], slice_disp_output, 
-                                           titles = ('Output Masks', 'Output Slices'),
+                                           titles = ('General Masks', 'Output Slices'),
                                            save_to=f'{self.fig_path}/version_{self.logger.version}_train_out.png')
 
         return loss
@@ -310,18 +310,18 @@ class NeurOrientLightning(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         if isinstance(batch, dict):
-            slices_true = batch['image'].to(self.device).to(self.dtype)
-            input_mask  = batch['input_mask'].to(self.device).to(self.dtype)
-            general_mask = batch['general_mask'].to(self.device).to(self.dtype)
+            slices_true = batch['image'].to(self.dtype)
+            input_mask  = batch['input_mask'].bool()
+            general_mask = batch['general_mask'].bool()
         else:
-            slices_true = batch[0].to(self.device).to(self.dtype)
-            input_mask = 1.
-            general_mask = 1.
+            slices_true = batch[0].to(self.dtype)
+            input_mask = torch.ones_like(slices_true).bool().bool()
+            general_mask = torch.ones_like(slices_true).bool().bool()
 
         # Apply input and general masks and loss scale factor to get input slices.
-        slices_input  = torch.log(input_mask  * general_mask * slices_true * self.model.loss_scale_factor + 1.)
+        slices_input  = input_mask  * general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
         # Apply general mask and loss scale factor to get target slices.
-        slices_output = torch.log(general_mask * slices_true * self.model.loss_scale_factor + 1.)
+        slices_output = general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
 
         # predict orientations from images
         orientations = self.model.image_to_orientation(slices_input)
@@ -333,8 +333,8 @@ class NeurOrientLightning(L.LightningModule):
         slices_pred = self.model.predict_slice(HKL).view((-1, 1,) + (self.model.image_dimension,)*2)
 
         # We don't want to compare the general masked area
-        loss = self.loss_func((general_mask * slices_pred).cpu(), slices_output.cpu())
-        self.log("val_loss", loss.item())
+        loss = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_output[general_mask.bool()].cpu())
+        self.log("val_loss", loss.item(), prog_bar=True, sync_dist=True)
 
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
@@ -350,7 +350,7 @@ class NeurOrientLightning(L.LightningModule):
             if isinstance(general_mask, torch.Tensor):
                 slice_disp_output = (torch.exp(slices_output[:num_figs]) - 1) / self.model.loss_scale_factor
                 display_images_in_parallel(general_mask[:num_figs], slice_disp_output, 
-                                           titles = ('Output Masks', 'Output Slices'),
+                                           titles = ('General Masks', 'Output Slices'),
                                            save_to=f'{self.fig_path}/version_{self.logger.version}_val_out.png')
             
             
@@ -371,6 +371,6 @@ class NeurOrientLightning(L.LightningModule):
     def get_figure_save_dir(self,):
         if not hasattr(self, 'fig_path'):
             self.fig_path = Path(
-                os.path.join(self.trainer.logger.save_dir, 'lightning_logs', f'version_{self.trainer.logger.version}', 'figures')
+                os.path.join(self.trainer.logger.log_dir, 'figures')
             )
             self.fig_path.mkdir(parents=True, exist_ok=True)

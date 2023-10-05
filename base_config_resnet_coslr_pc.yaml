@@ -10,7 +10,7 @@ DATASET:
   USES_PHOTON_FLUCTUATION : false
   USES_POISSON_NOISE      : true
   USES_BEAM_STOP_MASK     : false
-  USES_RANDOM_PATCH       : false
+  USES_RANDOM_PATCH       : true
 
   PATCH:
     NUM_PATCHES     : 100

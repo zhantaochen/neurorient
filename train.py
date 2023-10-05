@@ -18,6 +18,7 @@ import torch
 from torch.utils.data import TensorDataset
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
+from lightning.pytorch.strategies import DDPStrategy
 
 from neurorient.model           import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform
@@ -42,7 +43,7 @@ parser.add_argument('-yf', '--yaml_file', help="Path to the YAML file", dest='ya
 args = parser.parse_args()
 
 # args = argparse.Namespace(
-#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet_coslr_fpcb.yaml')
+#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet_coslr_fpc.yaml')
 
 # %%
 # [[[ HYPER-PARAMERTERS ]]]
@@ -74,9 +75,7 @@ dir_dataset       = merged_config.DATASET.DATASET_DIRECTORY
 # necessary info to fetch data file name
 pdb               = merged_config.DATASET.PDB
 num_images        = merged_config.DATASET.NUM_IMG
-increase_factor   = merged_config.DATASET.INCREASE_FACTOR
-use_poisson_noise = merged_config.DATASET.USES_POISSON_NOISE
-data_file_name = f'{pdb}_increase{increase_factor}_poisson{use_poisson_noise}_num{num_images//1000}K.pt'
+data_file_name = f'{pdb}_increase1_poissonFalse_num{num_images//1000}K.pt'
 logger.log(f'data read from {data_file_name}')
 
 # necessary info to define datasets
@@ -207,19 +206,20 @@ checkpoint_callback = ModelCheckpoint(
 
 torch.set_float32_matmul_precision('high')
 
+ddp = DDPStrategy(process_group_backend="nccl")
 trainer = L.Trainer(
-    max_epochs=max_epochs, accelerator='gpu',
+    max_epochs=max_epochs, accelerator='gpu', strategy=ddp, deterministic=True,
     callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=10)],
     log_every_n_steps=1, devices=num_gpus,
     strategy="ddp", sync_batchnorm = True,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 
 # dump configuration to file for later reference
-dump_yaml_fname = Path(os.path.join(trainer.logger.save_dir, 'lightning_logs', f'version_{trainer.logger.version}', 'input.yaml'))
+dump_yaml_fname = Path(os.path.join(trainer.logger.log_dir, 'input.yaml'))
 dump_yaml_fname.parent.mkdir(parents=True, exist_ok=True)
 merged_config.dump_to_file(dump_yaml_fname)
 
-dump_log_fname = Path(os.path.join(trainer.logger.save_dir, 'lightning_logs', f'version_{trainer.logger.version}', 'log.txt'))
+dump_log_fname = Path(os.path.join(trainer.logger.log_dir, 'log.txt'))
 dump_log_fname.parent.mkdir(parents=True, exist_ok=True)
 logger.dump_to_file(dump_log_fname)
 

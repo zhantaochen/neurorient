@@ -108,14 +108,14 @@ class BeamStopMask:
         y, x = y.float(), x.float()
 
         # Create center mask
-        center_y, center_x = H // 2, W // 2
+        center_y, center_x = H / 2, W / 2
         circle_mask = ((x - center_x)**2 + (y - center_y)**2) > self.radius**2
 
         # Create beam stop mask
-        if self.mask_orientation == 'h':
-            beam_mask = torch.abs(y - center_y) > self.width / 2
-        elif self.mask_orientation == 'v':
-            beam_mask = torch.abs(x - center_x) > self.width / 2
+        if self.mask_orientation == 'v':
+            beam_mask = torch.logical_or(torch.abs(y - center_y) > self.width / 2, x > center_x)
+        elif self.mask_orientation == 'h':
+            beam_mask = torch.logical_or(torch.abs(x - center_x) > self.width / 2, y > center_y)
         else:
             raise ValueError("mask_orientation should be either 'h' or 'v'")
 

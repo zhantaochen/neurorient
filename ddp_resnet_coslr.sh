@@ -3,7 +3,7 @@
 #SBATCH --constraint gpu
 #SBATCH --qos regular
 #SBATCH --time 6:00:00
-#SBATCH --ntasks 1
+#SBATCH --ntasks 4
 #SBATCH --ntasks-per-node 4
 #SBATCH --cpus-per-task 32
 #SBATCH --gpus-per-node 4

@@ -7,9 +7,9 @@ DATASET:
   BATCH_SIZE        : 80
   NUM_WORKERS       : 10
 
-  USES_PHOTON_FLUCTUATION : false
+  USES_PHOTON_FLUCTUATION : true
   USES_POISSON_NOISE      : true
-  USES_BEAM_STOP_MASK     : false
+  USES_BEAM_STOP_MASK     : true
   USES_RANDOM_PATCH       : false
 
   PATCH:

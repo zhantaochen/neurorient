@@ -4,7 +4,7 @@ DATASET:
   INCREASE_FACTOR   : 10
   NUM_IMG           : 10000
   FRAC_TRAIN        : 0.9
-  BATCH_SIZE        : 40
+  BATCH_SIZE        : 80
   NUM_WORKERS       : 10
 
   USES_PHOTON_FLUCTUATION : true
@@ -13,13 +13,13 @@ DATASET:
   USES_RANDOM_PATCH       : false
 
   PATCH:
-    NUM_PATCHES     : 200
+    NUM_PATCHES     : 100
     SIZE_PATCH_MIN  : 4
     SIZE_PATCH_MAX  : 8
   BEAM_STOP_MASK:
-    WIDTH                 : 4
-    RADIUS                : 6
-    ORIENTATION           : 'h'
+    WIDTH                 : 3
+    RADIUS                : 5
+    ORIENTATION           : 'v'
 
 
 MODEL:

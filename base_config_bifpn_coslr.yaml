@@ -13,9 +13,9 @@ DATASET:
   USES_RANDOM_PATCH       : false
 
   PATCH:
-    NUM_PATCHES     : 100
+    NUM_PATCHES     : 200
     SIZE_PATCH_MIN  : 4
-    SIZE_PATCH_MAX  : 6
+    SIZE_PATCH_MAX  : 8
   BEAM_STOP_MASK:
     WIDTH                 : 3
     RADIUS                : 5
@@ -27,7 +27,7 @@ MODEL:
   BACKBONE:
     RES_TYPE      : 18
     PRETRAIN      : true
-  USE_BIFPN       : false
+  USE_BIFPN       : true
 
 
 OPTIM:
@@ -43,7 +43,7 @@ OPTIM:
 
 TRAINING:
   SEED                  : 42
-  CHKPT_DIRECTORY       : "experiments/transformations"
+  CHKPT_DIRECTORY       : chkpts
   MAX_EPOCHS            : 1000
   NUM_GPUS              : 4
   BASE_DIRECTORY        : "/pscratch/sd/z/zhantao/neurorient_repo"
