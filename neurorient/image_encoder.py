@@ -38,10 +38,10 @@ class ImageEncoder(nn.Module):
             "layer4" : True,
         }
 
-        self.output_chanels = self.get_output_channels(resnet_type)
+        self.output_channels = self.get_output_channels(backbone_type)
 
 
-    def get_output_channels(self, resnet_type):
+    def get_output_channels(self, backbone_type):
         return {
             'resnet18' : {
                 "relu"   : 64,
@@ -57,7 +57,7 @@ class ImageEncoder(nn.Module):
                 "layer3" : 1024,
                 "layer4" : 2048,
             }
-        }[resnet_type]
+        }[backbone_type]
 
 
     def adjust_layers(self):
