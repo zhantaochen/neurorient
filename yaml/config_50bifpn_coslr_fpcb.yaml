@@ -25,7 +25,7 @@ DATASET:
 MODEL:
   OVERSAMPLING    : 1.
   BACKBONE:
-    RES_TYPE      : 18
+    RES_TYPE      : 50
     PRETRAIN      : true
   USE_BIFPN       : true
 

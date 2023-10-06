@@ -116,6 +116,10 @@ if merged_config.DATASET.USES_POISSON_NOISE:
     transform_list.append(poisson_noise)
     logger.log(f'transformation: poisson noise applied to training and validation datasets.')
 
+# TODO: add Gaussian noise transformation
+
+
+
 
 if merged_config.DATASET.USES_BEAM_STOP_MASK:
     beam_stop_mask = BeamStopMask(width              = merged_config.DATASET.BEAM_STOP_MASK.WIDTH, 
@@ -127,6 +131,9 @@ if merged_config.DATASET.USES_BEAM_STOP_MASK:
     logger.log(f'transformation: beam stop mask applied to training and validation datasets.')
     
     
+# TODO: add normalization transformation
+
+
 if merged_config.DATASET.USES_RANDOM_PATCH:
     # set up random patch transformation
     num_patch       = merged_config.DATASET.PATCH.NUM_PATCHES
@@ -138,7 +145,6 @@ if merged_config.DATASET.USES_RANDOM_PATCH:
                                return_mask     = True)
     transform_list.append(random_patch)
     logger.log(f'transformation: random patch applied to training and validation datasets.')
-    
     
 if len(transform_list) > 0:
     transform_list   = tuple(transform_list)
