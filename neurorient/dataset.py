@@ -5,11 +5,30 @@ from .image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, BeamS
 
 import warnings
 
+class DictionaryDataset(Dataset):
+    """ A minimal dataset class that takes a dictionary of tensors as input.
+        Adapted from draft by ChatGPT GPT-4.
+        Usage:
+            x = torch.randn(100, 3, 32, 32)
+            y = torch.randint(0, 2, (100,))
+            dataset = DictionaryDataset(features=x, labels=y)
+    """
+    def __init__(self, **tensors):
+        assert all(tensors[next(iter(tensors))].size(0) == tensor.size(0) for tensor in tensors.values())
+        self.tensors = tensors
+
+    def __getitem__(self, index):
+        return {key: tensor[index] for key, tensor in self.tensors.items()}
+
+    def __len__(self):
+        return next(iter(self.tensors.values())).size(0)
+
+
 class TensorDatasetWithTransform(Dataset):
-    def __init__(self, dataset, transform_list = None):
+    def __init__(self, dataset, transform_list = None, seed = None):
         self.dataset        = dataset
         self.transform_list = transform_list
-
+        self.seed           = seed
         self.eps = 1e-6
 
         return None
@@ -25,6 +44,11 @@ class TensorDatasetWithTransform(Dataset):
         img_transformed = img.clone()
         input_mask = torch.ones_like(img)
         general_mask = torch.ones_like(img)
+        
+        if self.seed is not None:
+            torch.manual_seed(self.seed + idx)
+            np.random.seed(self.seed + idx)
+        
         for i_transform, transform in enumerate(self.transform_list):
             if transform is None:
                 continue

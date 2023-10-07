@@ -113,18 +113,18 @@ def display_images_in_parallel(
     if ax is None:
         fig, ax = plt.subplots(2, N, figsize=(3 * N, 6.5))
     if N == 1:
-        ax[0].imshow(tensors1[0], cmap='gray', vmax=max(tensors1[0].max() * 1e-3, tensors1[0].min()))
+        ax[0].imshow(tensors1[0], cmap='gray', vmax=max(tensors1[0].max() * 5e-3, tensors1[0].min()))
         ax[0].set_title(f"{titles[0]} 0")
         ax[0].axis('off')
-        ax[1].imshow(tensors2[0], cmap='gray', vmax=max(tensors2[0].max() * 1e-3, tensors2[0].min()))
+        ax[1].imshow(tensors2[0], cmap='gray', vmax=max(tensors2[0].max() * 5e-3, tensors2[0].min()))
         ax[1].set_title(f"{titles[1]} 0")
         ax[1].axis('off')
     else:
         for i in range(N):
-            ax[0, i].imshow(tensors1[i], cmap='gray', vmax=max(tensors1[i].max() * 1e-3, tensors1[i].min()))
+            ax[0, i].imshow(tensors1[i], cmap='gray', vmax=max(tensors1[i].max() * 5e-3, tensors1[i].min()))
             ax[0, i].set_title(f"{titles[0]} {i}")
             ax[0, i].axis('off')
-            ax[1, i].imshow(tensors2[i], cmap='gray', vmax=max(tensors2[i].max() * 1e-3, tensors2[i].min()))
+            ax[1, i].imshow(tensors2[i], cmap='gray', vmax=max(tensors2[i].max() * 5e-3, tensors2[i].min()))
             ax[1, i].set_title(f"{titles[1]} {i}")
             ax[1, i].axis('off')
     plt.tight_layout()

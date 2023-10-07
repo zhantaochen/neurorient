@@ -14,6 +14,6 @@ export SLURM_CPU_BIND="cores"
 module load python
 source activate /pscratch/sd/z/zhantao/conda/om
 
-srun python train.py --yaml_file yaml/config_bifpn_coslr_fpcb.yaml
+srun python train.py --yaml_file yaml/config_bifpn18_coslr_fpgcb.yaml
 
 # perform any cleanup or short post-processing here

@@ -23,7 +23,7 @@ from lightning.pytorch.strategies import DDPStrategy
 from neurorient.model           import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform
 from neurorient.logger          import Logger
-from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, BeamStopMask
+from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask
 from neurorient.configurator    import Configurator
 # from neurorient.lr_scheduler    import CosineLRScheduler
 from neurorient.config          import _CONFIG
@@ -41,9 +41,6 @@ parser = argparse.ArgumentParser(description="Load training configuration from a
 parser.add_argument('-yf', '--yaml_file', help="Path to the YAML file", dest='yaml_file', type=str, required=True)
 
 args = parser.parse_args()
-
-# args = argparse.Namespace(
-#     yaml_file='/global/homes/z/zhantao/Projects/NeuralOrientationMatching/base_config_resnet_coslr_fpc.yaml')
 
 # %%
 # [[[ HYPER-PARAMERTERS ]]]
@@ -116,9 +113,11 @@ if merged_config.DATASET.USES_POISSON_NOISE:
     transform_list.append(poisson_noise)
     logger.log(f'transformation: poisson noise applied to training and validation datasets.')
 
-# TODO: add Gaussian noise transformation
 
-
+if merged_config.DATASET.USES_GAUSSIAN_NOISE:
+    gaussian_noise = GaussianNoise(sigma=merged_config.DATASET.GAUSSIAN_NOISE.SIGMA, return_mask=False)
+    transform_list.append(gaussian_noise)
+    logger.log(f'transformation: gaussian noise applied to training and validation datasets.')
 
 
 if merged_config.DATASET.USES_BEAM_STOP_MASK:
@@ -131,9 +130,6 @@ if merged_config.DATASET.USES_BEAM_STOP_MASK:
     logger.log(f'transformation: beam stop mask applied to training and validation datasets.')
     
     
-# TODO: add normalization transformation
-
-
 if merged_config.DATASET.USES_RANDOM_PATCH:
     # set up random patch transformation
     num_patch       = merged_config.DATASET.PATCH.NUM_PATCHES
@@ -145,6 +141,7 @@ if merged_config.DATASET.USES_RANDOM_PATCH:
                                return_mask     = True)
     transform_list.append(random_patch)
     logger.log(f'transformation: random patch applied to training and validation datasets.')
+    
     
 if len(transform_list) > 0:
     transform_list   = tuple(transform_list)

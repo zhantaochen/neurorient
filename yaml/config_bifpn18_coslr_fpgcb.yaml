@@ -7,11 +7,14 @@ DATASET:
   BATCH_SIZE        : 80
   NUM_WORKERS       : 10
 
-  USES_PHOTON_FLUCTUATION : false
+  USES_PHOTON_FLUCTUATION : true
   USES_POISSON_NOISE      : true
-  USES_BEAM_STOP_MASK     : false
-  USES_RANDOM_PATCH       : false
+  USES_GAUSSIAN_NOISE     : true
+  USES_BEAM_STOP_MASK     : true
+  USES_RANDOM_PATCH       : true
 
+  GAUSSIAN_NOISE:
+    SIGMA           : 0.15
   PATCH:
     NUM_PATCHES     : 100
     SIZE_PATCH_MIN  : 4
