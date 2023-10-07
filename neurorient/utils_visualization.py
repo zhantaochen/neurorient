@@ -36,11 +36,14 @@ def save_mrc(output, data, voxel_size=None, header_origin=None):
     mrc.close()
     return
 
-def display_fsc(q, fsc, resolution=None, criterion=0.5, save_to=None, closefig=False):
-    fig, ax1 = plt.subplots()
+def display_fsc(q, fsc, resolution=None, criterion=0.5, save_to=None, closefig=False, ax=None):
+    if ax is None:
+        fig, ax1 = plt.subplots()
+    else:
+        ax1 = ax
     ax1.plot(q, fsc)
     ax1.set_xticks(np.linspace(0, np.round(q.max(), decimals=2), 5))
-    ax1.set_xlabel('Reciprocal distance $q$ ($\mathrm{\AA}^{-1}$)', fontsize=14)
+    ax1.set_xlabel('Reciprocal space distance $q$ ($\mathrm{\AA}^{-1}$)', fontsize=14)
     ax1.set_ylabel('Fourier Shell Correlation (FSC)', fontsize=14)
 
     if resolution is not None:
@@ -55,7 +58,7 @@ def display_fsc(q, fsc, resolution=None, criterion=0.5, save_to=None, closefig=F
     ax2 = ax1.twiny()
     ax2.set_xlim(ax1.get_xlim())
     ax2.set_xticks(ax1.get_xticks())
-    ax2.set_xticklabels([f"{1/q:.2f}" for q in ax1.get_xticks()])
+    ax2.set_xticklabels([r'Infinity',] + [f"{1/q:.2f}" for q in ax1.get_xticks()[1:]])
     ax2.set_xlabel('Real space resolution ($\mathrm{\AA}$)', fontsize=14)
 
     plt.tight_layout()

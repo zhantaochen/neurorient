@@ -93,6 +93,22 @@ class PoissonNoise:
         else:
             return output
         
+class GaussianNoise:
+    """ Add Gaussian noise (detector readout) to the image.
+    """
+    def __init__(self, sigma, return_mask = True):
+        self.return_mask = return_mask
+        self.sigma = sigma
+        return None
+    
+    def __call__(self, img):
+        noise = torch.randn_like(img) * self.sigma
+        output = (img + noise).clamp(min=0)
+        if self.return_mask:
+            return output, torch.ones_like(img)
+        else:
+            return output
+        
 class BeamStopMask:
     """ Add beam stop mask to the image.
     """
