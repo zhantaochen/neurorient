@@ -21,7 +21,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.strategies import DDPStrategy
 
 from neurorient.model           import NeurOrientLightning
-from neurorient.dataset         import TensorDatasetWithTransform
+from neurorient.dataset         import TensorDatasetWithTransform, DictionaryDataset
 from neurorient.logger          import Logger
 from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask
 from neurorient.configurator    import Configurator
@@ -145,9 +145,32 @@ if merged_config.DATASET.USES_RANDOM_PATCH:
     
 if len(transform_list) > 0:
     transform_list   = tuple(transform_list)
-    dataset_train    = TensorDatasetWithTransform(spi_data_train.unsqueeze(1), transform_list = transform_list)
-    dataset_validate = TensorDatasetWithTransform(spi_data_validate.unsqueeze(1), transform_list = transform_list)
+    _dataset_train    = TensorDatasetWithTransform(
+        spi_data_train.unsqueeze(1), transform_list = transform_list, seed=merged_config.TRAINING.SEED)
+    _dataset_validate = TensorDatasetWithTransform(
+        spi_data_validate.unsqueeze(1), transform_list = transform_list, seed=merged_config.TRAINING.SEED)
+    
     logger.log(f'{len(transform_list)} transformations applied to training and validation datasets.')
+    
+    train_data = {key: [] for key in _dataset_train[0].keys()}
+    for i, d in enumerate(_dataset_train):
+        for _key in d.keys():
+            train_data[_key].append(d[_key])
+    for _key in train_data.keys():
+        train_data[_key] = torch.stack(train_data[_key], dim=0)
+    dataset_train = DictionaryDataset(**train_data)
+    del train_data
+    
+    validate_data = {key: [] for key in _dataset_validate[0].keys()}
+    for i, d in enumerate(_dataset_validate):
+        for _key in d.keys():
+            validate_data[_key].append(d[_key])
+    for _key in validate_data.keys():
+        validate_data[_key] = torch.stack(validate_data[_key], dim=0)
+    dataset_validate = DictionaryDataset(**validate_data)
+    del validate_data
+    
+    logger.log(f'created dictionary datasets for training and validation.')
 else:
     dataset_train    = TensorDataset(spi_data_train.unsqueeze(1))
     dataset_validate = TensorDataset(spi_data_validate.unsqueeze(1))
@@ -155,6 +178,7 @@ else:
 
 logger.log(f'created training dataset with {len(dataset_train)} images and validation dataset with {len(dataset_validate)} images.')
 
+# %%
 
 # lightning will handle the samplers for those dataloaders
 sampler_train    = None
