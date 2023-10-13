@@ -94,9 +94,6 @@ data              = spi_data['intensities'] * merged_config.DATASET.INCREASE_FAC
 spi_data_train    = data[:int(len(data) * frac_train) ]
 spi_data_validate = data[ int(len(data) * frac_train):]
 
-# Set world seed and set up transformation rules
-uses_random_patch = merged_config.DATASET.USES_RANDOM_PATCH
-
 transform_list = []
 
 if merged_config.DATASET.USES_PHOTON_FLUCTUATION:
