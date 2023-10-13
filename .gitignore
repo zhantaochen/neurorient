@@ -4,3 +4,6 @@ lightning_logs/
 .ipynb_checkpoints/
 *.mrc
 logs/
+
+bash/
+yaml/

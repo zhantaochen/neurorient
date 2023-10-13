@@ -14,7 +14,7 @@ DATASET:
   USES_RANDOM_PATCH       : true
 
   GAUSSIAN_NOISE:
-    SIGMA           : 0.15
+    SIGMA           : 0.05
   PATCH:
     NUM_PATCHES     : 100
     SIZE_PATCH_MIN  : 4

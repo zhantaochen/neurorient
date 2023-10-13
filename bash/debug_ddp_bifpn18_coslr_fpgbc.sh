@@ -12,7 +12,7 @@
 export SLURM_CPU_BIND="cores"
 
 module load python
-source activate /pscratch/sd/z/zhantao/conda/om
+conda activate /pscratch/sd/z/zhantao/conda/om
 
 srun python train.py --yaml_file yaml/config_bifpn18_coslr_fpgbc.yaml
 
