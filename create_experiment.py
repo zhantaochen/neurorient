@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# Example usage:
+# python create_experiment.py --pdb 6e5b -FPGB
+
 from jinja2 import Environment, FileSystemLoader
 
 import os

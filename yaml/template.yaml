@@ -14,7 +14,7 @@ DATASET:
   USES_RANDOM_PATCH       : {{ C }}
 
   GAUSSIAN_NOISE:
-    SIGMA           : 0.15
+    SIGMA           : 0.05
   PATCH:
     NUM_PATCHES     : 100
     SIZE_PATCH_MIN  : 4
@@ -49,4 +49,4 @@ TRAINING:
   CHKPT_DIRECTORY       : "experiments/transformations"
   MAX_EPOCHS            : 1000
   NUM_GPUS              : 4
-  BASE_DIRECTORY        : "/pscratch/sd/c/cwang31/neurorient"
+  BASE_DIRECTORY        : "/pscratch/sd/z/zhantao/neurorient_repo"
