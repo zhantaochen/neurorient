@@ -1,3 +1,4 @@
+import os
 from .configurator import Configurator
 
 import torch
@@ -7,9 +8,12 @@ from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNo
 
 from tqdm import tqdm
 
-def flags_long2short(s):
+def flags_long2short(long_flags):
+    """ Handy function to convert long flags to short flags, e.g. "f1_p1_g1_b1_c1" to "fpgbc".
+        Created by ChatGPT GPT-4 model.
+    """
     # Split the string by underscores
-    parts = s.split('_')
+    parts = long_flags.split('_')
     result = []
 
     # Iterate over the split parts
@@ -21,6 +25,24 @@ def flags_long2short(s):
 
     # Join the result list to get the final string
     return ''.join(result)
+
+def flags_short2long(short_flags):
+    """ Handy function to convert long flags to short flags, e.g. "fpgbc" to "f1_p1_g1_b1_c1".
+        Created by ChatGPT GPT-4 model.
+    """
+    # Define the available flags and their default values
+    available_flags = {'f': '0', 'p': '0', 'g': '0', 'b': '0', 'c': '0'}
+    
+    # Iterate over the characters in the short flags
+    for char in short_flags:
+        # Check if the character is a valid flag
+        if char in available_flags:
+            # Set the flag to '1'
+            available_flags[char] = '1'
+    
+    # Convert the flags dictionary to the long format string
+    long_flags = '_'.join([f'{key}{value}' for key, value in available_flags.items()])
+    return long_flags
 
 
 def prepare_Slice2RotMat_config(config):
@@ -68,6 +90,9 @@ def prepare_optimization_config(config):
 
 
 def prepare_dataset(config, data_input, verbose=True):
+    # Current script's directory
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    
     data = config.DATASET.INCREASE_FACTOR * data_input.clone()
     del data_input
     transform_list = []
@@ -75,7 +100,7 @@ def prepare_dataset(config, data_input, verbose=True):
     if config.DATASET.USES_PHOTON_FLUCTUATION:
         # set up photon fluctuation transformation
         photon_fluctuation = PhotonFluctuation(
-            'neurorient/data/image_distribution_by_photon_count.npy',
+            os.path.join(script_dir, 'data/image_distribution_by_photon_count.npy'),
             return_mask=False)
         transform_list.append(photon_fluctuation)
         if verbose:

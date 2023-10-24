@@ -5,5 +5,7 @@ lightning_logs/
 *.mrc
 logs/
 
-bash_local/
-yaml_local/
+bash/
+yaml/
+
+paper_production/

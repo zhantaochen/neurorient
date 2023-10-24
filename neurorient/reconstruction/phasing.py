@@ -5,11 +5,11 @@ adapted from https://gitlab.osti.gov/mtip/spinifel/-/blob/development/spinifel/s
 import torch
 try:
     import cupy as xp
-    from cupyx.scipy.ndimage import gaussian_filter
+    from cupyx.scipy.ndimage import gaussian_filter, uniform_filter
     using_cupy = True
 except ImportError:
     import numpy as xp
-    from scipy.ndimage import gaussian_filter
+    from scipy.ndimage import gaussian_filter, uniform_filter
     using_cupy = False
 from tqdm import tqdm
 
@@ -56,6 +56,29 @@ def recenter(rho_, support_, M):
             break
     return rho_, support_
 
+def adaptive_threshold(image, window_size, weight):
+    """
+    Calculate adaptive threshold for each pixel in the image.
+    
+    :param image: 2D numpy array, input image
+    :param window_size: Size of the local window (should be odd)
+    :param weight: Weight factor to adjust the threshold
+    :return: 2D numpy array, adaptive threshold for each pixel
+    """
+    device = image.device
+    dtype = image.dtype
+    if using_cupy:
+        image = xp.array(image.cpu().numpy())
+    else:
+        image = image.cpu().numpy()
+    mean = uniform_filter(image, size=window_size)
+    std = xp.sqrt(uniform_filter(image**2, size=window_size) - mean**2)
+    threshold = mean + weight * std
+    if using_cupy:
+        threshold = threshold.get()
+    threshold = torch.from_numpy(threshold).to(device).to(dtype)
+    return threshold
+
 def shrink_wrap(sigma, rho_, support_, method=None, weight=1.0, cutoff=0.05):
     """
     Perform shrinkwrap operation to update the support for convergence.
@@ -83,6 +106,9 @@ def shrink_wrap(sigma, rho_, support_, method=None, weight=1.0, cutoff=0.05):
         support_[:] = rho_gauss_ > threshold
     elif method == "max":
         threshold = rho_abs_.max() * cutoff * weight
+        support_[:] = rho_gauss_ > threshold
+    elif method == "adaptive":
+        threshold = adaptive_threshold(rho_gauss_, 3, weight)
         support_[:] = rho_gauss_ > threshold
     elif method == "min_max":
         threshold_low = rho_abs_.max() * cutoff
@@ -182,7 +208,7 @@ def step_phase(rho_, amplitude_, amp_mask_, support_):
 
 class PhaseRetriever:
     
-    def __init__(self, n_phase_loops: int=10, nER: int=50, nHIO: int=25, nDM: int=25, beta_HIO: float=0.9, beta_DM: float=1.0, support=None, shrink_wrap_method: str=None) -> None:
+    def __init__(self, n_phase_loops: int=10, nER: int=50, nHIO: int=25, nDM: int=25, beta_HIO: float=0.9, beta_DM: float=1.0, support=None, shrink_wrap_method: str=None, cutoff: float=0.05) -> None:
         self.n_phase_loops = n_phase_loops
         self.nER = nER
         self.nHIO = nHIO
@@ -191,6 +217,7 @@ class PhaseRetriever:
         self.beta_DM = beta_DM
         self.support = support 
         self.shrink_wrap_method = shrink_wrap_method
+        self.shrink_wrap_cutoff = cutoff
     
     def ER_loop(self, n_loops, rho_, amplitude_, amp_mask_, support_, rho_max):
         for i in range(n_loops):
@@ -236,7 +263,7 @@ class PhaseRetriever:
                 
                 rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
                 rho_ = rho_.clip_(0.)
-                support_ = shrink_wrap(1, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=0.05)
+                support_ = shrink_wrap(1, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=self.shrink_wrap_cutoff)
                 rho_, support_ = recenter(rho_, support_, M)
             
             

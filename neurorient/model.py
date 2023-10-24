@@ -205,7 +205,7 @@ class NeurOrient(nn.Module):
             # predict slices from HKL
             slices_pred = self.predict_slice(HKL).view((-1, 1,) + (self.image_dimension,)*2)
 
-            return orientations, slices_pred
+            return orientations, (torch.exp(slices_pred) - 1) / self.loss_scale_factor
 
 
     def forward(self, x):

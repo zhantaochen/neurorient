@@ -120,20 +120,24 @@ def compute_fsc(
         fsc = fsc.get()
         q_centers = q_centers.get()
 
-    crossings = find_crossings(q_centers, fsc, value=0.5)
-    if len(crossings) == 0 and fsc.min() > 0.5:
-        resolution = 1.0 / q_centers[-1]
-        print(f"Estimated resolution from largest-q: at least {resolution:.1f} Angstrom")
-    elif len(crossings) == 0 and fsc.min() < 0.5:
-        resolution = -1
-        print("Resolution could be too bad to be estimated.")
-    elif len(crossings) == 1:
-        resolution = 1 / crossings[0]
-        print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
-    elif len(crossings) > 1:
-        resolution = 1 / crossings[0]
-        print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
-        print(f"Multiple crossings detected. Resolution may be underestimated. The best resolution would be {1/crossings[-1]:.1f} Angstrom")
-
-    return resolution, q_centers, fsc, opt_q
+    resolutions = []
+    criteria = [0.5, 0.143]
+    for criterion in criteria:
+        crossings = find_crossings(q_centers, fsc, value=criterion)
+        if len(crossings) == 0 and fsc.min() > 0.5:
+            resolution = 1.0 / q_centers[-1]
+            print(f"Estimated resolution from largest-q: at least {resolution:.1f} Angstrom")
+        elif len(crossings) == 0 and fsc.min() < 0.5:
+            resolution = -1
+            print("Resolution could be too bad to be estimated.")
+        elif len(crossings) == 1:
+            resolution = 1 / crossings[0]
+            print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
+        elif len(crossings) > 1:
+            resolution = 1 / crossings[0]
+            print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
+            print(f"Multiple crossings detected. Resolution may be underestimated. The best resolution would be {1/crossings[-1]:.1f} Angstrom")
+        resolutions.append(resolution)
+        
+    return criteria, resolutions, q_centers, fsc, opt_q, volume1
 
