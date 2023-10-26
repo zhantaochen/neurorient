@@ -48,7 +48,7 @@ class TensorDatasetWithTransform(Dataset):
         if self.seed is not None:
             torch.manual_seed(self.seed + idx)
             np.random.seed(self.seed + idx)
-        
+        photon_flux_factor = torch.tensor([1.,])
         for i_transform, transform in enumerate(self.transform_list):
             if transform is None:
                 continue
@@ -77,6 +77,16 @@ class TensorDatasetWithTransform(Dataset):
                 _, _mask = transform(img_transformed)
                 input_mask = input_mask * _mask
                 
+            elif isinstance(transform, PhotonFluctuation):
+                if transform.return_mask:
+                    img_transformed, photon_flux_factor = transform(img_transformed)
+                    photon_flux_factor = torch.tensor([photon_flux_factor,])
+                else:
+                    transform.return_mask = True
+                    img_transformed, photon_flux_factor = transform(img_transformed)
+                    photon_flux_factor = torch.tensor([photon_flux_factor,])
+                    transform.return_mask = False
+                
             else:
                 """ for non-RandomPatch and non-BeamStopMask transforms, apply the transform to the image,
                     and take mask or not depending on the return_mask attribute.
@@ -86,4 +96,4 @@ class TensorDatasetWithTransform(Dataset):
                 else:
                     img_transformed = transform(img_transformed)
                 
-        return {"image": img_transformed, "input_mask": input_mask, 'general_mask': general_mask}    # (C, H, W)
+        return {"image": img_transformed, "input_mask": input_mask, 'general_mask': general_mask, "photon_flux_factor": photon_flux_factor}    # (C, H, W)

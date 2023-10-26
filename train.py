@@ -206,6 +206,7 @@ model = NeurOrientLightning(
     over_sampling=over_sampling, 
     photons_per_pulse=photons_per_pulse,
     use_bifpn=merged_config.MODEL.USE_BIFPN,
+    use_fluctuation_predictor=True if merged_config.DATASET.USES_PHOTON_FLUCTUATION else False,
     config_slice2rotmat=config_slice2rotmat,
     config_intensitynet=config_intensitynet,
     config_optimization=config_optimization

@@ -75,7 +75,7 @@ class PhotonFluctuation:
         scale_factors = torch.from_numpy(self.kde.sample(num_samples).squeeze(-1)).to(img.device)
         output = torch.einsum('b..., b -> b...', img, scale_factors)
         if self.return_mask:
-            return output, torch.ones_like(img)
+            return output, scale_factors
         else:
             return output
     

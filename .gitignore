@@ -8,4 +8,7 @@ logs/
 bash/
 yaml/
 
+bash_archived/
+yaml_archived/
+
 paper_production/
