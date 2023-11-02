@@ -38,7 +38,8 @@ def compute_fsc(
         volume_type='electron_density',
         q_spacing=0.01,
         align_zoom=0.5,
-        align_n_search=420):
+        align_n_search=420,
+        return_all_volumes=False,):
     """
     Taken from https://gitlab.osti.gov/mtip/spinifel/-/blob/master/eval/fsc.py?ref_type=heads
 
@@ -138,6 +139,8 @@ def compute_fsc(
             print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
             print(f"Multiple crossings detected. Resolution may be underestimated. The best resolution would be {1/crossings[-1]:.1f} Angstrom")
         resolutions.append(resolution)
-        
-    return criteria, resolutions, q_centers, fsc, opt_q, volume1
-
+    
+    if not return_all_volumes:
+        return criteria, resolutions, q_centers, fsc, opt_q, volume1
+    else:
+        return criteria, resolutions, q_centers, fsc, opt_q, volume1, volume2

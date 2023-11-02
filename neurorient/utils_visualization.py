@@ -58,7 +58,7 @@ def display_fsc(q, fsc,
         for res, crit in zip(resolution, criteria):
             ax1.hlines(crit, -0.1, 1 / res, linestyles='--', colors='gray', linewidth=1)
             ax1.vlines(1 / res, crit, ax1.get_ylim()[1], linestyles='--', colors='gray', linewidth=1)
-            ax1.text(1 / res + 0.005, 
+            ax1.text(1 / res + 0.0025, 
                     crit + 0.05, 
                     f'{res:.2f} $\mathrm{{\AA}}$', fontsize=11, ha='left')
     ax1.set_xlim([-0.005, q.max()+0.005])
