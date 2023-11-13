@@ -39,7 +39,7 @@ def save_mrc(output, data, voxel_size=None, header_origin=None):
     return
 
 def display_fsc(q, fsc, 
-                resolution=None, criteria=0.5, show_upper_xlabels=True,
+                resolution=None, criteria=0.5, res_pos=None, show_upper_xlabels=True,
                 save_to=None, closefig=False, ax=None, fsc_args={}):
     if ax is None:
         fig, ax1 = plt.subplots()
@@ -55,12 +55,19 @@ def display_fsc(q, fsc,
             resolution = [resolution]
         if isinstance(criteria, (float, int)):
             criteria = [criteria]
-        for res, crit in zip(resolution, criteria):
+        if res_pos is None:
+            res_pos = ['right'] * len(resolution)
+        for res, crit, pos in zip(resolution, criteria, res_pos):
             ax1.hlines(crit, -0.1, 1 / res, linestyles='--', colors='gray', linewidth=1)
             ax1.vlines(1 / res, crit, ax1.get_ylim()[1], linestyles='--', colors='gray', linewidth=1)
-            ax1.text(1 / res + 0.0025, 
-                    crit + 0.05, 
-                    f'{res:.2f} $\mathrm{{\AA}}$', fontsize=11, ha='left')
+            if pos == 'right':
+                ax1.text(1 / res + 0.0025, 
+                        crit + 0.035, 
+                        f'{res:.2f} $\mathrm{{\AA}}$', fontsize=11, ha='left')
+            elif pos == 'below':
+                ax1.text(1 / res + 0.001, 
+                        crit - 0.125, 
+                        f'{res:.2f} $\mathrm{{\AA}}$', fontsize=11, ha='right')
     ax1.set_xlim([-0.005, q.max()+0.005])
     ax1.set_ylim([min(-0.05, fsc.min()-0.025), 1.05])
 
@@ -174,13 +181,18 @@ def display_images_in_parallel(
     if closefig:
         plt.close(fig)
 
-def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None):
+def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None, axes_labels='xyz'):
 
     if isinstance(volumes, list):
         volumes = [convert_to_numpy(v) for v in volumes]
     else:
         volumes = [convert_to_numpy(volumes)]
 
+    if axes_labels == 'xyz':
+        axes_labels = ['$x$', '$y$', '$z$']
+    elif axes_labels == 'hkl':
+        axes_labels = ['$h$', '$k$', '$l$']
+    
     N = len(volumes)
     if ax is None:
         fig, ax = plt.subplots(N, 3, figsize=(9.5, 3 * N))
@@ -189,12 +201,12 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
         ax[0].imshow(volumes[0][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
         ax[1].imshow(volumes[0][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
         ax[2].imshow(volumes[0][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
-        ax[0].set_ylabel('$z$')
-        ax[1].set_ylabel('$z$')
-        ax[2].set_ylabel('$y$')
-        ax[0].set_xlabel('$y$')
-        ax[1].set_xlabel('$x$')
-        ax[2].set_xlabel('$x$')
+        ax[0].set_ylabel(axes_labels[2])
+        ax[1].set_ylabel(axes_labels[2])
+        ax[2].set_ylabel(axes_labels[1])
+        ax[0].set_xlabel(axes_labels[1])
+        ax[1].set_xlabel(axes_labels[0])
+        ax[2].set_xlabel(axes_labels[0])
     else:
         for i in range(N):
             dim1, dim2, dim3 = volumes[i].shape
@@ -202,12 +214,12 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
             ax[i,1].imshow(volumes[i][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
             ax[i,2].imshow(volumes[i][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
             
-            ax[i,0].set_ylabel('$z$')
-            ax[i,1].set_ylabel('$z$')
-            ax[i,2].set_ylabel('$y$')
-        ax[-1,0].set_xlabel('$y$')
-        ax[-1,1].set_xlabel('$x$')
-        ax[-1,2].set_xlabel('$x$')
+            ax[i,0].set_ylabel(axes_labels[2])
+            ax[i,1].set_ylabel(axes_labels[2])
+            ax[i,2].set_ylabel(axes_labels[1])
+        ax[-1,0].set_xlabel(axes_labels[1])
+        ax[-1,1].set_xlabel(axes_labels[0])
+        ax[-1,2].set_xlabel(axes_labels[0])
         
     plt.tight_layout()
     # plt.show()

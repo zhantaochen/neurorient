@@ -76,6 +76,10 @@ data_file_name = f'{pdb}_increase1_poissonFalse_num{num_images//1000}K.pt'
 logger.log(f'data read from {data_file_name}')
 
 # necessary info to define datasets
+if hasattr(merged_config.DATASET, 'FRAC_TOTAL'):
+    frac_total        = merged_config.DATASET.FRAC_TOTAL
+else:
+    frac_total        = 1.0
 frac_train        = merged_config.DATASET.FRAC_TRAIN
 size_batch        = merged_config.DATASET.BATCH_SIZE
 num_workers       = merged_config.DATASET.NUM_WORKERS
@@ -90,7 +94,8 @@ logger.log(f'training the model with {max_epochs} epochs and {num_gpus} GPUs')
 spi_data = torch.load(os.path.join(dir_dataset, data_file_name))
 
 # Set global seed and split data...
-data              = spi_data['intensities'] * merged_config.DATASET.INCREASE_FACTOR
+total_num_data    = len(spi_data['intensities'])
+data              = spi_data['intensities'][:int(total_num_data * frac_total)] * merged_config.DATASET.INCREASE_FACTOR
 spi_data_train    = data[:int(len(data) * frac_train) ]
 spi_data_validate = data[ int(len(data) * frac_train):]
 
