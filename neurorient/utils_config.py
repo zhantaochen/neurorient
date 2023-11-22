@@ -24,7 +24,11 @@ def flags_long2short(long_flags):
             result.append(part[0])
 
     # Join the result list to get the final string
-    return ''.join(result)
+    out_str = ''.join(result)
+    if len(out_str) == 0:
+        return long_flags
+    else:
+        return ''.join(result)
 
 def flags_short2long(short_flags):
     """ Handy function to convert long flags to short flags, e.g. "fpgbc" to "f1_p1_g1_b1_c1".
