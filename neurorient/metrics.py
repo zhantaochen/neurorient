@@ -30,6 +30,26 @@ def find_crossings(qshell, fsc, value=0.5):
     
     return q_crossings
 
+def compute_resolution(q, fsc, criteria=[0.5, 0.143]):
+    resolutions = []
+    for criterion in criteria:
+        crossings = find_crossings(q, fsc, value=criterion)
+        if len(crossings) == 0 and fsc.min() > 0.5:
+            resolution = 1.0 / q[-1]
+            print(f"Estimated resolution from largest-q: at least {resolution:.1f} Angstrom")
+        elif len(crossings) == 0 and fsc.min() < 0.5:
+            resolution = -1
+            print("Resolution could be too bad to be estimated.")
+        elif len(crossings) == 1:
+            resolution = 1 / crossings[0]
+            print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
+        elif len(crossings) > 1:
+            resolution = 1 / crossings[0]
+            print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
+            print(f"Multiple crossings detected. Resolution may be underestimated. The best resolution would be {1/crossings[-1]:.1f} Angstrom")
+        resolutions.append(resolution)
+    return resolutions
+
 def compute_fsc(
         volume1,
         mesh1,
@@ -38,7 +58,8 @@ def compute_fsc(
         volume_type='electron_density',
         q_spacing=0.01,
         align_zoom=0.5,
-        align_n_search=420):
+        align_n_search=420,
+        return_all_volumes=False,):
     """
     Taken from https://gitlab.osti.gov/mtip/spinifel/-/blob/master/eval/fsc.py?ref_type=heads
 
@@ -120,84 +141,28 @@ def compute_fsc(
         fsc = fsc.get()
         q_centers = q_centers.get()
 
-    crossings = find_crossings(q_centers, fsc, value=0.5)
-    if len(crossings) == 0 and fsc.min() > 0.5:
-        resolution = 1.0 / q_centers[-1]
-        print(f"Estimated resolution from largest-q: at least {resolution:.1f} Angstrom")
-    elif len(crossings) == 0 and fsc.min() < 0.5:
-        resolution = -1
-        print("Resolution could be too bad to be estimated.")
-    elif len(crossings) == 1:
-        resolution = 1 / crossings[0]
-        print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
-    elif len(crossings) > 1:
-        resolution = 1 / crossings[0]
-        print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
-        print(f"Multiple crossings detected. Resolution may be underestimated. The best resolution would be {1/crossings[-1]:.1f} Angstrom")
-
-    # f = scipy.interpolate.interp1d(fsc, q_centers, bounds_error=False)
-    # try:
-    #     resolution = 1.0 / f(0.5)
-    #     print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
-    # except ValueError:
-    #     if fsc.min() > 0.5:
+    criteria=[0.5, 0.143]
+    resolutions = compute_resolution(q_centers, fsc, criteria=criteria)
+    # resolutions = []
+    # criteria = [0.5, 0.143]
+    # for criterion in criteria:
+    #     crossings = find_crossings(q_centers, fsc, value=criterion)
+    #     if len(crossings) == 0 and fsc.min() > 0.5:
     #         resolution = 1.0 / q_centers[-1]
     #         print(f"Estimated resolution from largest-q: at least {resolution:.1f} Angstrom")
-    #     else:
+    #     elif len(crossings) == 0 and fsc.min() < 0.5:
     #         resolution = -1
-    #         print("Resolution could not be estimated.")
-
-    return resolution, q_centers, fsc, opt_q
-
-
-# def score_rotmat(rotmat1, rotmat2, rotmat_candidate):
-#     angle_error = []
-#     for _rotmat in rotmat_candidate:
-#         angle_error.append(
-#             so3_relative_angle(
-#                 torch.einsum("lij, jk -> lik", rotmat1, _rotmat), 
-#                 rotmat2).mean()
-#             )
-#     return torch.stack(angle_error)
-
-# def scan_orientations_fine(
-#         rotmat1,
-#         rotmat2,
-#         opt_rotmat,
-#         prev_angle_error,
-#         n_iterations=10,
-#         n_search=420):
+    #         print("Resolution could be too bad to be estimated.")
+    #     elif len(crossings) == 1:
+    #         resolution = 1 / crossings[0]
+    #         print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
+    #     elif len(crossings) > 1:
+    #         resolution = 1 / crossings[0]
+    #         print(f"Estimated resolution from FSC: {resolution:.1f} Angstrom")
+    #         print(f"Multiple crossings detected. Resolution may be underestimated. The best resolution would be {1/crossings[-1]:.1f} Angstrom")
+    #     resolutions.append(resolution)
     
-#     # perform a series of fine alignment, ending if CC no longer improves
-#     sigmas = 2 - 0.2 * np.arange(1, 10)
-#     for n in tqdm(range(1, n_iterations)):
-#         rotmat_candidate = quaternion_to_matrix(torch.from_numpy(
-#             sk.get_preferred_orientation_quat(float(sigmas[n - 1]), n_search - 1, base_quat=matrix_to_quaternion(opt_rotmat).detach().cpu().numpy())
-#             )).to(opt_rotmat)
-#         rotmat_candidate = torch.vstack((opt_rotmat[None], rotmat_candidate))
-#         angle_error = score_rotmat(rotmat1, rotmat2, rotmat_candidate)
-#         if angle_error.min().item() > prev_angle_error:
-#             break
-#         else:
-#             opt_rotmat = rotmat_candidate[angle_error.argmin()]
-#         #print(torch.max(ccs), opt_q) # useful for debugging
-#         prev_score = angle_error.min().item()
-
-#     return opt_rotmat, prev_score
-
-# def align_rotation_matrices(rotmat1, rotmat2, n_search=420, nscs=1, n_iterations=10):
-
-#     # perform a coarse alignment to start
-#     rotmat_candidate = quaternion_to_matrix(torch.from_numpy(sk.get_uniform_quat(n_search))).to(rotmat1)
-#     angle_error = score_rotmat(rotmat1, rotmat2, rotmat_candidate)
-#     ae_order = angle_error.argsort()
-
-#     # scan the top solutions
-#     opt_rotmat_list, ae_list = torch.zeros((nscs, 3, 3)).to(rotmat1), torch.zeros(nscs).to(rotmat1)
-#     for n in range(nscs):
-#         start_q, start_ae = rotmat_candidate[ae_order[n]], angle_error[ae_order[n]]
-#         opt_rotmat_list[n], ae_list[n] = scan_orientations_fine(
-#             rotmat1, rotmat2, start_q, start_ae, n_iterations=n_iterations, n_search=n_search)
-
-#     opt_rotmat, final_ae = opt_rotmat_list[torch.argmin(ae_list)], torch.min(ae_list)
-#     return opt_rotmat, final_ae
+    if not return_all_volumes:
+        return criteria, resolutions, q_centers, fsc, opt_q, volume1
+    else:
+        return criteria, resolutions, q_centers, fsc, opt_q, volume1, volume2

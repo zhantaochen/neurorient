@@ -2,4 +2,14 @@
 __pycache__/
 lightning_logs/
 .ipynb_checkpoints/
+.vscode/
 *.mrc
+logs/
+
+bash/
+yaml/
+
+bash_archived/
+yaml_archived/
+
+paper_production/
