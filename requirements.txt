@@ -1,0 +1,10 @@
+lightning==2.0.7
+mrcfile==1.4.3
+numba==0.57.1
+numpy==1.23.5
+pytorch3d==0.7.4
+scipy==1.11.2
+skopi==0.6.0
+torch==2.0.1
+torch-scatter==2.1.1
+torchkbnufft==1.4.0
