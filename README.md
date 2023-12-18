@@ -1,5 +1,7 @@
 # `neurorient`: Self-supervised machine learning framework for x-ray single particle imaging reconstruction.
 
+Code repository for “Augmenting x-ray single particle imaging reconstruction with self-supervised machine learning” (https://arxiv.org/abs/2311.16652).
+
 ## Key scripts
 - `generate_diffraction_images.ipynb`: generating basic diffraction patterns based on PDB-format structure files.
 - `train.py`: perform training of the model provided some input `*.yaml` configuration file.
