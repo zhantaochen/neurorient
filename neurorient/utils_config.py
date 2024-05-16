@@ -4,7 +4,7 @@ from .configurator import Configurator
 import torch
 from torch.utils.data import TensorDataset
 from neurorient.dataset         import TensorDatasetWithTransform, DictionaryDataset
-from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask
+from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask, BeamStopMask_from_file
 
 from tqdm import tqdm
 
@@ -126,14 +126,27 @@ def prepare_dataset(config, data_input, verbose=True):
 
 
     if config.DATASET.USES_BEAM_STOP_MASK:
-        beam_stop_mask = BeamStopMask(width              = config.DATASET.BEAM_STOP_MASK.WIDTH, 
-                                      radius             = config.DATASET.BEAM_STOP_MASK.RADIUS, 
-                                      input_size         = data.shape[-2:],
-                                      mask_orientation   = config.DATASET.BEAM_STOP_MASK.ORIENTATION,
-                                      return_mask        = True)
-        transform_list.append(beam_stop_mask)
-        if verbose:
+        if hasattr(config.DATASET.BEAM_STOP_MASK, 'READ_FILE'):
+            beam_stop_file = config.DATASET.BEAM_STOP_MASK.READ_FILE
+            beam_stop_mask = BeamStopMask_from_file(file_path=beam_stop_file, return_mask=True)
+            transform_list.append(beam_stop_mask)
+            print(f'transformation: beam stop mask loaded from {beam_stop_file}.')
+        else:
+            beam_stop_mask = BeamStopMask(width              = config.DATASET.BEAM_STOP_MASK.WIDTH, 
+                                        radius             = config.DATASET.BEAM_STOP_MASK.RADIUS, 
+                                        input_size         = data.shape[-2:],
+                                        mask_orientation   = config.DATASET.BEAM_STOP_MASK.ORIENTATION,
+                                        return_mask        = True)
+            transform_list.append(beam_stop_mask)
             print(f'transformation: beam stop mask applied to training and validation datasets.')
+        # beam_stop_mask = BeamStopMask(width              = config.DATASET.BEAM_STOP_MASK.WIDTH, 
+        #                               radius             = config.DATASET.BEAM_STOP_MASK.RADIUS, 
+        #                               input_size         = data.shape[-2:],
+        #                               mask_orientation   = config.DATASET.BEAM_STOP_MASK.ORIENTATION,
+        #                               return_mask        = True)
+        # transform_list.append(beam_stop_mask)
+        # if verbose:
+        #     print(f'transformation: beam stop mask applied to training and validation datasets.')
         
         
     if config.DATASET.USES_RANDOM_PATCH:

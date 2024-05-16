@@ -2,6 +2,8 @@ import numpy as np
 import torch
 from sklearn.neighbors import KernelDensity
 
+import torchvision
+
 class RandomPatch:
     """ Randomly place num_patch patch with the size of size_y * size_x onto an image.
     """
@@ -125,16 +127,19 @@ class BeamStopMask:
 
         # Create center mask
         center_y, center_x = H / 2, W / 2
-        circle_mask = ((x - center_x)**2 + (y - center_y)**2) > self.radius**2
+        circle_mask = torch.sqrt((x - center_x)**2 + (y - center_y)**2) > self.radius
 
-        # Create beam stop mask
-        if self.mask_orientation == 'v':
-            beam_mask = torch.logical_or(torch.abs(y - center_y) > self.width / 2, x > center_x)
-        elif self.mask_orientation == 'h':
-            beam_mask = torch.logical_or(torch.abs(x - center_x) > self.width / 2, y > center_y)
+        if width > 0:
+            # Create beam stop mask
+            if self.mask_orientation == 'v':
+                beam_mask = torch.logical_or(torch.abs(y - center_y) > self.width / 2, x > center_x)
+            elif self.mask_orientation == 'h':
+                beam_mask = torch.logical_or(torch.abs(x - center_x) > self.width / 2, y > center_y)
+            else:
+                raise ValueError("mask_orientation should be either 'h' or 'v'")
         else:
-            raise ValueError("mask_orientation should be either 'h' or 'v'")
-
+            beam_mask = torch.ones_like(circle_mask)
+        
         # Combine masks
         self.base_mask = circle_mask * beam_mask
         
@@ -154,3 +159,46 @@ class BeamStopMask:
             return output, mask
         else:
             return output
+        
+
+class BeamStopMask_from_file:
+    """ Add beam stop mask to the image.
+    """
+    def __init__(self, file_path, return_mask = True):
+        self.return_mask = return_mask
+        self.base_mask = torch.load(file_path)['mask']
+    
+    def get_mask(self, img_shape):
+        if len(img_shape) == 2:
+            return self.base_mask
+        else:
+            mask = self.base_mask.reshape((1,) * (len(img_shape)-2) + self.base_mask.shape)
+            return mask.repeat(*img_shape[:-2], 1, 1)
+    
+    def __call__(self, img):
+        mask = self.get_mask(img.shape)
+        output = img * mask
+        if self.return_mask:
+            return output, mask
+        else:
+            return output
+        
+class RandomRotation:
+    def __init__(self, degrees, 
+                 interpolation=torchvision.transforms.InterpolationMode.NEAREST, 
+                 expand=False, 
+                 center=None, 
+                 fill=0,
+                 return_mask=True):
+        self.rotater = torchvision.transforms.RandomRotation(
+            degrees, interpolation=interpolation, expand=expand, center=center, fill=fill)
+        self.return_mask = return_mask
+        return None
+    
+    def __call__(self, img):
+        img_out = self.rotater(img)
+        
+        if self.return_mask:
+            return img_out, torch.ones_like(img_out)
+        else:
+            return img_out

@@ -1,12 +1,3 @@
-# %%
-"""
-This notebook is used to verify the configurator.py file.
-"""
-
-# %%
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import os
 from pathlib import Path
 import yaml
@@ -23,7 +14,7 @@ from lightning.pytorch.strategies import DDPStrategy
 from neurorient.model           import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform, DictionaryDataset
 from neurorient.logger          import Logger
-from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask, BeamStopMask_from_file, RandomRotation
+from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask
 from neurorient.configurator    import Configurator
 # from neurorient.lr_scheduler    import CosineLRScheduler
 from neurorient.config          import _CONFIG
@@ -127,29 +118,14 @@ if merged_config.DATASET.USES_GAUSSIAN_NOISE:
 
 
 if merged_config.DATASET.USES_BEAM_STOP_MASK:
-    if hasattr(merged_config.DATASET.BEAM_STOP_MASK, 'READ_FILE'):
-        beam_stop_file = merged_config.DATASET.BEAM_STOP_MASK.READ_FILE
-        beam_stop_mask = BeamStopMask_from_file(file_path=beam_stop_file, return_mask=True)
-        transform_list.append(beam_stop_mask)
-        logger.log(f'transformation: beam stop mask loaded from {beam_stop_file}.')
-    else:
-        beam_stop_mask = BeamStopMask(width              = merged_config.DATASET.BEAM_STOP_MASK.WIDTH, 
-                                    radius             = merged_config.DATASET.BEAM_STOP_MASK.RADIUS, 
-                                    input_size         = data.shape[-2:],
-                                    mask_orientation   = merged_config.DATASET.BEAM_STOP_MASK.ORIENTATION,
-                                    return_mask        = True)
-        transform_list.append(beam_stop_mask)
-        logger.log(f'transformation: beam stop mask applied to training and validation datasets.')
-
-if merged_config.DATASET.USES_RANDOM_ROTATION:
-    import torchvision
-    random_rotation = RandomRotation(
-        degrees=(0, 360), return_mask=False,
-        interpolation=torchvision.transforms.InterpolationMode.BILINEAR
-    )
+    beam_stop_mask = BeamStopMask(width              = merged_config.DATASET.BEAM_STOP_MASK.WIDTH, 
+                                  radius             = merged_config.DATASET.BEAM_STOP_MASK.RADIUS, 
+                                  input_size         = data.shape[-2:],
+                                  mask_orientation   = merged_config.DATASET.BEAM_STOP_MASK.ORIENTATION,
+                                  return_mask        = True)
+    transform_list.append(beam_stop_mask)
+    logger.log(f'transformation: beam stop mask applied to training and validation datasets.')
     
-    transform_list.append(random_rotation)
-    logger.log(f'transformation: using random rotation.')
     
 if merged_config.DATASET.USES_RANDOM_PATCH:
     # set up random patch transformation
@@ -225,26 +201,12 @@ photons_per_pulse = merged_config.DATASET.INCREASE_FACTOR * 1e12
 config_optimization = prepare_optimization_config(merged_config)
 config_intensitynet = prepare_IntensityNet_config(merged_config)
 config_slice2rotmat = prepare_Slice2RotMat_config(merged_config)
-
-if hasattr(merged_config.MODEL, "PRED_PHOTON_PULSE_ANYWAY"):
-    if merged_config.MODEL.PRED_PHOTON_PULSE_ANYWAY:
-        use_fluctuation_predictor=True
-    else:
-        use_fluctuation_predictor=False
-else:
-    if merged_config.DATASET.USES_PHOTON_FLUCTUATION:
-        use_fluctuation_predictor=True
-    else:
-        use_fluctuation_predictor=False
-        
-logger.log(f"Using fluctuation predictor: {use_fluctuation_predictor}")
-
 model = NeurOrientLightning(
     spi_data['pixel_position_reciprocal'],
     over_sampling=over_sampling, 
     photons_per_pulse=photons_per_pulse,
     use_bifpn=merged_config.MODEL.USE_BIFPN,
-    use_fluctuation_predictor=use_fluctuation_predictor,
+    use_fluctuation_predictor=True if merged_config.DATASET.USES_PHOTON_FLUCTUATION else False,
     config_slice2rotmat=config_slice2rotmat,
     config_intensitynet=config_intensitynet,
     config_optimization=config_optimization

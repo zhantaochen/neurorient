@@ -13,3 +13,8 @@ bash_archived/
 yaml_archived/
 
 paper_production/
+
+dragonfly_utils/
+
+*.dat
+*.h5

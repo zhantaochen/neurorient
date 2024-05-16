@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from .image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, BeamStopMask
+from .image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, BeamStopMask, BeamStopMask_from_file, RandomRotation
 
 import warnings
 
@@ -65,6 +65,19 @@ class TensorDatasetWithTransform(Dataset):
                 _, _mask = transform(img_transformed)
                 general_mask = general_mask * _mask
             
+            
+            elif isinstance(transform, BeamStopMask_from_file):
+                """ For BeamStopMask transforms, do NOT apply the transform to the image;
+                    instead, we only take the mask, since the transform will be applied
+                    during the model training.
+                    The mask is multiplied to the general_mask.
+                """
+                if not self.transform_list[i_transform].return_mask:
+                    warnings.warn("BeamStopMask transform should have return_mask=True, setting it to True.")
+                    self.transform_list[i_transform].return_mask = True
+                _, _mask = transform(img_transformed)
+                general_mask = general_mask * _mask
+            
             elif isinstance(transform, RandomPatch):
                 """ For RandomPatch transforms, do NOT apply the transform to the image;
                     instead, we only take the mask, since the transform will be applied
@@ -86,6 +99,18 @@ class TensorDatasetWithTransform(Dataset):
                     img_transformed, photon_flux_factor = transform(img_transformed)
                     photon_flux_factor = torch.tensor([photon_flux_factor,])
                     transform.return_mask = False
+                    
+            elif isinstance(transform, RandomRotation):
+                if transform.return_mask:
+                    _augmented_img = torch.cat([general_mask[None], img_transformed[None]], dim=0)
+                    _augmented_img_transformed, _mask = transform(_augmented_img)
+                    general_mask = _augmented_img_transformed[0].clone()
+                    img_transformed = _augmented_img_transformed[1].clone()
+                else:
+                    _augmented_img = torch.cat([general_mask[None], img_transformed[None]], dim=0)
+                    _augmented_img_transformed = transform(_augmented_img)
+                    general_mask = _augmented_img_transformed[0].clone()
+                    img_transformed = _augmented_img_transformed[1].clone()
                 
             else:
                 """ for non-RandomPatch and non-BeamStopMask transforms, apply the transform to the image,
