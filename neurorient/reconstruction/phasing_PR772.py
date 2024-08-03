@@ -124,7 +124,7 @@ def shrink_wrap(sigma, rho_, support_, method=None, weight=1.0, cutoff=0.05):
     return support_
 
 def create_support_(amplitude_, M, support_threshold=1e-6):
-    sl = slice(M // 4, -(M // 4))
+    sl = slice(M // 10, -(M // 10))
     square_support = torch.zeros((M,)*3).to(amplitude_.device)
     square_support[sl, sl, sl] = 1
     square_support_ = torch.fft.ifftshift(square_support)
@@ -207,9 +207,14 @@ def step_phase(rho_, amplitude_, amp_mask_, support_):
     support_star_ = torch.logical_and(support_, rho_mod_>0)
     return rho_mod_, support_star_
 
+# import sys
+from ..so3_decomposition import so3_point_group_operations
+from ..external.spinifel.eval.align import rotate_volume
+from pytorch3d.transforms import matrix_to_quaternion
+
 class PhaseRetriever:
     
-    def __init__(self, n_phase_loops: int=10, nER: int=50, nHIO: int=25, nDM: int=25, beta_HIO: float=0.9, beta_DM: float=1.0, support=None, shrink_wrap_method: str=None, cutoff: float=0.05) -> None:
+    def __init__(self, n_phase_loops: int=10, symm_group: str='I', nER: int=50, nHIO: int=25, nDM: int=25, beta_HIO: float=0.9, beta_DM: float=1.0, support=None, shrink_wrap_method: str=None, cutoff: float=0.05) -> None:
         self.n_phase_loops = n_phase_loops
         self.nER = nER
         self.nHIO = nHIO
@@ -219,6 +224,18 @@ class PhaseRetriever:
         self.support = support 
         self.shrink_wrap_method = shrink_wrap_method
         self.shrink_wrap_cutoff = cutoff
+        
+        self.symm_quat = matrix_to_quaternion(so3_point_group_operations(symm_group)).numpy()
+        
+    def symmetrize(self, rho):
+        rho_symm = rotate_volume(rho.cpu().numpy(), self.symm_quat).mean(axis=0)
+        return torch.from_numpy(rho_symm.get()).to(rho.device)
+    
+    def symmetrize_(self, rho_):
+        rho = torch.fft.fftshift(rho_)
+        rho_symm = self.symmetrize(rho)
+        rho_symm_ = torch.fft.ifftshift(rho_symm)
+        return rho_symm_
     
     def ER_loop(self, n_loops, rho_, amplitude_, amp_mask_, support_, rho_max):
         for i in range(n_loops):
@@ -235,7 +252,7 @@ class PhaseRetriever:
             rho_ = step_DM(beta, rho_, amplitude_, amp_mask_, support_, rho_max)
         return rho_
     
-    def phase(self, amplitude, rho=None, rho_max=torch.inf, amp_mask=None):
+    def phase(self, amplitude, amp_mask=None, rho=None, rho_max=torch.inf):
         
         device = amplitude.device
         amplitude_ = torch.fft.ifftshift(amplitude).detach()
@@ -257,8 +274,11 @@ class PhaseRetriever:
         
         with torch.no_grad():
             for i in tqdm(range(self.n_phase_loops), desc="Phase Retrieval"):
+                rho_ = self.symmetrize_(rho_)
+                
                 rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
                 rho_ = rho_.clip_(0.)
+                
                 rho_ = self.HIO_loop(self.nHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
                 rho_ = rho_.clip_(0.)
                 
@@ -267,18 +287,21 @@ class PhaseRetriever:
                 
                 rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
                 rho_ = rho_.clip_(0.)
-                support_ = shrink_wrap(1, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=self.shrink_wrap_cutoff)
+                support_ = shrink_wrap(.01, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=self.shrink_wrap_cutoff)
                 rho_, support_ = recenter(rho_, support_, M)
+                
             
             rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
             rho_ = rho_.clip_(0.)
             
-            # rho_ = self.HIO_loop(self.nHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
-            # rho_ = rho_.clip_(0.)
+            rho_ = self.HIO_loop(self.nHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
+            rho_ = rho_.clip_(0.)
 
-            # rho_ = self.DM_loop(self.nDM, self.beta_DM, rho_, amplitude_, amp_mask_, support_, rho_max)
-            # rho_ = rho_.clip_(0.)
+            rho_ = self.DM_loop(self.nDM, self.beta_DM, rho_, amplitude_, amp_mask_, support_, rho_max)
+            rho_ = rho_.clip_(0.)
             
+            
+        rho_ = self.symmetrize_(rho_)
         rho_, support_ = recenter(torch.nan_to_num(rho_), support_, M)
         rho_phased = torch.fft.fftshift(rho_)
         support_phased = torch.fft.fftshift(support_)

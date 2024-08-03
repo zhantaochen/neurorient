@@ -40,15 +40,15 @@ def save_mrc(output, data, voxel_size=None, header_origin=None):
 
 def display_fsc(q, fsc, 
                 resolution=None, criteria=0.5, res_pos=None, show_upper_xlabels=True,
-                save_to=None, closefig=False, ax=None, fsc_args={}):
+                save_to=None, closefig=False, ax=None, fsc_args={}, fontsize_mid=14):
     if ax is None:
         fig, ax1 = plt.subplots()
     else:
         ax1 = ax
     ax1.plot(q, fsc, **fsc_args)
     ax1.set_xticks(np.linspace(0, np.round(q.max(), decimals=2), 5))
-    ax1.set_xlabel('Reciprocal space distance $q$ ($\mathrm{\AA}^{-1}$)', fontsize=14)
-    ax1.set_ylabel('Fourier Shell Correlation (FSC)', fontsize=14)
+    ax1.set_xlabel('Reciprocal space distance $q$ ($\mathrm{\AA}^{-1}$)', fontsize=fontsize_mid)
+    ax1.set_ylabel('Fourier Shell Correlation (FSC)', fontsize=fontsize_mid)
 
     if resolution is not None:
         if isinstance(resolution, (float, int)):
@@ -76,7 +76,7 @@ def display_fsc(q, fsc,
         ax2.set_xlim(ax1.get_xlim())
         ax2.set_xticks(ax1.get_xticks())
         ax2.set_xticklabels([r'Infinity',] + [f"{1/q:.2f}" for q in ax1.get_xticks()[1:]])
-        ax2.set_xlabel('Real space resolution ($\mathrm{\AA}$)', fontsize=14)
+        ax2.set_xlabel('Real space resolution ($\mathrm{\AA}$)', fontsize=fontsize_mid)
 
     plt.tight_layout()
     # plt.show()
@@ -140,6 +140,57 @@ def display_images(images, columns, vmax=None, size=3,
             plt.show()
     else:
         plt.close(fig)
+        
+
+def display_images_pcolormesh(images, columns, vmax=None, size=3,
+                   gs_kwargs = {'wspace':0, 'hspace':0},
+                   cmap='gray', title='auto', save_to=None, closefig=False, ax=None):
+    """
+    Display images in a grid format.
+    
+    Parameters:
+    - images: A list of images. Each image should be of shape (b, b).
+    - columns: Number of columns for displaying images.
+    """
+    images = convert_to_numpy(images)
+    N = len(images)
+    rows = N // columns
+    rows += N % columns
+
+    position = range(1, N + 1)
+
+    if title == 'auto':
+        title = [f'Image {k}' for k in position]
+    if title != 'none':
+        assert len(title) == N, "Number of titles must match number of images"
+    
+    if ax is None:
+        fig, axes = plt.subplots(rows, columns, figsize=(columns * size, rows * size), 
+                                gridspec_kw=gs_kwargs)
+        # Flatten the axes for easy looping
+        ax_flat = axes.ravel() if rows > 1 or columns > 1 else [axes]
+    else:
+        gs_sub = gridspec.GridSpecFromSubplotSpec(rows, columns, subplot_spec=ax)
+        ax_flat = [plt.subplot(cell) for cell in gs_sub]
+    
+    for k, (_ax, image) in enumerate(zip(ax_flat, images)):
+        # _ax.imshow(image, cmap=cmap, vmax=vmax)
+        # _ax.imshow(image, cmap=cmap, vmax=vmax)
+        
+        _ax.pcolormesh(image, cmap=cmap, vmax=vmax, linewidth=0, antialiased=True)
+        _ax.set_aspect('equal')
+        if title != 'none':
+            _ax.set_title(title[k])
+        _ax.axis('off')
+        
+    if save_to is not None:
+        fig.savefig(save_to, bbox_inches='tight')
+        
+    if not closefig:
+        if ax is not None:
+            plt.show()
+    else:
+        plt.close(fig)
     
 def display_images_in_parallel(
         tensors1, tensors2, 
@@ -181,9 +232,10 @@ def display_images_in_parallel(
     if closefig:
         plt.close(fig)
 
-def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None, axes_labels='xyz'):
+def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None, axes_labels='xyz', titles=None, 
+                    ticklabelssoff=True, fontsize_mid=14):
 
-    if isinstance(volumes, list):
+    if isinstance(volumes, (list, tuple)):
         volumes = [convert_to_numpy(v) for v in volumes]
     else:
         volumes = [convert_to_numpy(volumes)]
@@ -201,12 +253,18 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
         ax[0].imshow(volumes[0][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
         ax[1].imshow(volumes[0][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
         ax[2].imshow(volumes[0][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
-        ax[0].set_ylabel(axes_labels[2])
-        ax[1].set_ylabel(axes_labels[2])
-        ax[2].set_ylabel(axes_labels[1])
-        ax[0].set_xlabel(axes_labels[1])
-        ax[1].set_xlabel(axes_labels[0])
-        ax[2].set_xlabel(axes_labels[0])
+        ax[0].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
+        ax[1].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
+        ax[2].set_ylabel(axes_labels[1], fontsize=fontsize_mid)
+        ax[0].set_xlabel(axes_labels[1], fontsize=fontsize_mid)
+        ax[1].set_xlabel(axes_labels[0], fontsize=fontsize_mid)
+        ax[2].set_xlabel(axes_labels[0], fontsize=fontsize_mid)
+        if titles is not None:
+            ax[1].set_title(titles[0], fontsize=fontsize_mid)
+        if ticklabelssoff:
+            for j in range(3):
+                ax[j].set_xticks([])
+                ax[j].set_yticks([])
     else:
         for i in range(N):
             dim1, dim2, dim3 = volumes[i].shape
@@ -214,12 +272,20 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
             ax[i,1].imshow(volumes[i][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
             ax[i,2].imshow(volumes[i][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
             
-            ax[i,0].set_ylabel(axes_labels[2])
-            ax[i,1].set_ylabel(axes_labels[2])
-            ax[i,2].set_ylabel(axes_labels[1])
+            ax[i,0].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
+            ax[i,1].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
+            ax[i,2].set_ylabel(axes_labels[1], fontsize=fontsize_mid)
+            if titles is not None:
+                ax[i,1].set_title(titles[i], fontsize=fontsize_mid)
         ax[-1,0].set_xlabel(axes_labels[1])
         ax[-1,1].set_xlabel(axes_labels[0])
         ax[-1,2].set_xlabel(axes_labels[0])
+        
+        if ticklabelssoff:
+            for i in range(N):
+                for j in range(3):
+                    ax[i,j].set_xticks([])
+                    ax[i,j].set_yticks([])
         
     plt.tight_layout()
     # plt.show()
@@ -227,6 +293,77 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
         fig.savefig(save_to, bbox_inches='tight')
     if closefig:
         plt.close(fig)
+
+
+def display_volumes_pcolormesh(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None, axes_labels='xyz', titles=None, 
+                    ticklabelssoff=True, fontsize_mid=14):
+
+    if isinstance(volumes, (list, tuple)):
+        volumes = [convert_to_numpy(v) for v in volumes]
+    else:
+        volumes = [convert_to_numpy(volumes)]
+
+    if axes_labels == 'xyz':
+        axes_labels = ['$x$', '$y$', '$z$']
+    elif axes_labels == 'hkl':
+        axes_labels = ['$h$', '$k$', '$l$']
+    
+    N = len(volumes)
+    if ax is None:
+        fig, ax = plt.subplots(N, 3, figsize=(9.5, 3 * N))
+    if N == 1:
+        dim1, dim2, dim3 = volumes[0].shape
+        ax[0].pcolormesh(volumes[0][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+        ax[1].pcolormesh(volumes[0][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+        ax[2].pcolormesh(volumes[0][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+        ax[0].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
+        ax[1].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
+        ax[2].set_ylabel(axes_labels[1], fontsize=fontsize_mid)
+        ax[0].set_xlabel(axes_labels[1], fontsize=fontsize_mid)
+        ax[1].set_xlabel(axes_labels[0], fontsize=fontsize_mid)
+        ax[2].set_xlabel(axes_labels[0], fontsize=fontsize_mid)
+        if titles is not None:
+            ax[1].set_title(titles[0], fontsize=fontsize_mid)
+        if ticklabelssoff:
+            for j in range(3):
+                ax[j].set_xticks([])
+                ax[j].set_yticks([])
+        ax[0].set_aspect('equal')
+        ax[1].set_aspect('equal')
+        ax[2].set_aspect('equal')
+    else:
+        for i in range(N):
+            dim1, dim2, dim3 = volumes[i].shape
+            ax[i,0].pcolormesh(volumes[i][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+            ax[i,1].pcolormesh(volumes[i][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+            ax[i,2].pcolormesh(volumes[i][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, linewidth=0, antialiased=True)
+            
+            ax[i,0].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
+            ax[i,1].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
+            ax[i,2].set_ylabel(axes_labels[1], fontsize=fontsize_mid)
+            if titles is not None:
+                ax[i,1].set_title(titles[i], fontsize=fontsize_mid)
+                
+            ax[i,0].set_aspect('equal')
+            ax[i,1].set_aspect('equal')
+            ax[i,2].set_aspect('equal')
+        ax[-1,0].set_xlabel(axes_labels[1])
+        ax[-1,1].set_xlabel(axes_labels[0])
+        ax[-1,2].set_xlabel(axes_labels[0])
+        
+        if ticklabelssoff:
+            for i in range(N):
+                for j in range(3):
+                    ax[i,j].set_xticks([])
+                    ax[i,j].set_yticks([])
+        
+    plt.tight_layout()
+    # plt.show()
+    if save_to is not None:
+        fig.savefig(save_to, bbox_inches='tight')
+    if closefig:
+        plt.close(fig)
+
 
 # def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None):
 

@@ -48,6 +48,38 @@ def get_radial_profile(images, pixel_positions=None, reduce_mean=True, decimals=
         return q_unique, Iq.mean(dim=0)
     else:
         return q_unique, Iq
+    
+def get_volume_radial_profile(volumes, pixel_positions=None, reduce_mean=True, decimals=3):
+    """
+    Compute the radial profile (circular average) of a 2D image using pixel_positions.
+    
+    images: torch.Tensor, shape (N, H, W, D)
+    pixel_positions: torch.Tensor, shape (H, W, D, 3)
+    
+    """
+    
+    if pixel_positions is None:
+        # If center is not provided, assume center of the image
+        center = torch.tensor([(x-1)/2.0 for x in volumes.shape[-3:]])
+        
+        # Calculate the indices of the grid
+        x, y, z = torch.meshgrid(torch.arange(0, volumes.shape[-3], dtype=torch.float32, device=volumes.device),
+                                 torch.arange(0, volumes.shape[-2], dtype=torch.float32, device=volumes.device),
+                                 torch.arange(0, volumes.shape[-1], dtype=torch.float32, device=volumes.device), indexing='ij')
+        
+        # Calculate q values for each pixel
+        q = torch.sqrt((x - center[0])**2 + (y - center[1])**2 + (z - center[2])**2)
+        q = torch.round(q, decimals=decimals)  # Convert the radii to integers
+    else:
+        # pixel_positions = pixel_positions / pixel_positions.max() * np.pi
+        q = torch.round(pixel_positions.norm(dim=-1), decimals=decimals)
+    
+    q_unique, inv_map = torch.unique(q, sorted=True, return_inverse=True)
+    Iq = scatter_mean(volumes.view(volumes.shape[0], -1), inv_map.view(-1))
+    if reduce_mean:
+        return q_unique, Iq.mean(dim=0)
+    else:
+        return q_unique, Iq
 
 def get_radial_scale_mask(q_values, radial_profile, pixel_positions, alpha=0.0):
     alpha = max(alpha, 0.0)

@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from .image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, BeamStopMask, BeamStopMask_from_file, RandomRotation
+from .image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, BeamStopMask, BeamStopMask_from_file
 
 import warnings
 
@@ -100,17 +100,17 @@ class TensorDatasetWithTransform(Dataset):
                     photon_flux_factor = torch.tensor([photon_flux_factor,])
                     transform.return_mask = False
                     
-            elif isinstance(transform, RandomRotation):
-                if transform.return_mask:
-                    _augmented_img = torch.cat([general_mask[None], img_transformed[None]], dim=0)
-                    _augmented_img_transformed, _mask = transform(_augmented_img)
-                    general_mask = _augmented_img_transformed[0].clone()
-                    img_transformed = _augmented_img_transformed[1].clone()
-                else:
-                    _augmented_img = torch.cat([general_mask[None], img_transformed[None]], dim=0)
-                    _augmented_img_transformed = transform(_augmented_img)
-                    general_mask = _augmented_img_transformed[0].clone()
-                    img_transformed = _augmented_img_transformed[1].clone()
+            # elif isinstance(transform, RandomRotation):
+            #     if transform.return_mask:
+            #         _augmented_img = torch.cat([general_mask[None], img_transformed[None]], dim=0)
+            #         _augmented_img_transformed, _mask = transform(_augmented_img)
+            #         general_mask = _augmented_img_transformed[0].clone()
+            #         img_transformed = _augmented_img_transformed[1].clone()
+            #     else:
+            #         _augmented_img = torch.cat([general_mask[None], img_transformed[None]], dim=0)
+            #         _augmented_img_transformed = transform(_augmented_img)
+            #         general_mask = _augmented_img_transformed[0].clone()
+            #         img_transformed = _augmented_img_transformed[1].clone()
                 
             else:
                 """ for non-RandomPatch and non-BeamStopMask transforms, apply the transform to the image,
@@ -121,4 +121,4 @@ class TensorDatasetWithTransform(Dataset):
                 else:
                     img_transformed = transform(img_transformed)
                 
-        return {"image": img_transformed, "input_mask": input_mask, 'general_mask': general_mask, "photon_flux_factor": photon_flux_factor}    # (C, H, W)
+        return {"image": img_transformed, "input_mask": input_mask, 'general_mask': general_mask, "photon_flux_factor": photon_flux_factor, "idx": torch.tensor([idx])}    # (C, H, W)

@@ -20,9 +20,9 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.strategies import DDPStrategy
 
-from neurorient.model           import NeurOrientLightning
+from neurorient.model_pg_vol    import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform, DictionaryDataset
-from neurorient.logger          import Logger
+from neurorient.logger          import Logger 
 from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask, BeamStopMask_from_file
 from neurorient.configurator    import Configurator
 # from neurorient.lr_scheduler    import CosineLRScheduler
@@ -43,6 +43,8 @@ parser.add_argument('-fn', '--file_name', help="Data file", dest='file_name', ty
 parser.add_argument('-ckpt', '--checkpoint', help="Resume from the checkpoint file", dest='checkpoint', type=str, default=None)
 
 args = parser.parse_args()
+
+logger.log(f"loaded arguments: {args}")
 
 # %%
 # [[[ HYPER-PARAMERTERS ]]]
@@ -100,7 +102,7 @@ spi_data = torch.load(os.path.join(dir_dataset, data_file_name))
 
 # Set global seed and split data...
 total_num_data    = len(spi_data['intensities'])
-data              = spi_data['intensities'][:int(total_num_data * frac_total)] * merged_config.DATASET.INCREASE_FACTOR
+data              = spi_data['intensities'][:int(total_num_data * frac_total)]
 spi_data_train    = data[:int(len(data) * frac_train) ]
 spi_data_validate = data[ int(len(data) * frac_train):]
 
@@ -141,6 +143,16 @@ if merged_config.DATASET.USES_BEAM_STOP_MASK:
                                     return_mask        = True)
         transform_list.append(beam_stop_mask)
         logger.log(f'transformation: beam stop mask applied to training and validation datasets.')
+
+# if merged_config.DATASET.USES_RANDOM_ROTATION:
+#     import torchvision
+#     random_rotation = RandomRotation(
+#         degrees=(0, 360), return_mask=False,
+#         interpolation=torchvision.transforms.InterpolationMode.BILINEAR
+#     )
+    
+#     transform_list.append(random_rotation)
+#     logger.log(f'transformation: using random rotation.')
     
 if merged_config.DATASET.USES_RANDOM_PATCH:
     # set up random patch transformation
@@ -197,60 +209,76 @@ sampler_train    = None
 dataloader_train = torch.utils.data.DataLoader( dataset_train,
                                                 sampler     = sampler_train,
                                                 shuffle     = True,
+                                                pin_memory  = False,
                                                 batch_size  = size_batch,
-                                                num_workers = num_workers, )
+                                                num_workers = num_workers, 
+                                                persistent_workers = True, drop_last=True)
 
 sampler_validate    = None
 dataloader_validate = torch.utils.data.DataLoader( dataset_validate,
                                                    sampler     = sampler_validate,
                                                    shuffle     = False,
+                                                   pin_memory  = False,
                                                    batch_size  = size_batch,
-                                                   num_workers = num_workers, )
+                                                   num_workers = num_workers, 
+                                                   persistent_workers = True, drop_last=True)
 
 # %%
 # [[[ MODEL ]]]
 
 
-if args.checkpoint is not None:
-    model = NeurOrientLightning.load_from_checkpoint(args.checkpoint)
-    logger.log(f"Resume training from checkpoint: {args.checkpoint}.")
-else:
-    over_sampling = merged_config.MODEL.OVERSAMPLING
-    photons_per_pulse = merged_config.DATASET.INCREASE_FACTOR * 1e12
-    config_optimization = prepare_optimization_config(merged_config)
-    config_intensitynet = prepare_IntensityNet_config(merged_config)
-    config_slice2rotmat = prepare_Slice2RotMat_config(merged_config)
+over_sampling = merged_config.MODEL.OVERSAMPLING
+photons_per_pulse = merged_config.DATASET.INCREASE_FACTOR * 1e12
+config_optimization = prepare_optimization_config(merged_config)
+config_intensitynet = prepare_IntensityNet_config(merged_config)
+config_slice2rotmat = prepare_Slice2RotMat_config(merged_config)
 
-    if hasattr(merged_config.MODEL, "PRED_PHOTON_PULSE_ANYWAY"):
-        if merged_config.MODEL.PRED_PHOTON_PULSE_ANYWAY:
-            use_fluctuation_predictor=True
-        else:
-            use_fluctuation_predictor=False
+if hasattr(merged_config.MODEL, "PRED_PHOTON_PULSE_ANYWAY"):
+    if merged_config.MODEL.PRED_PHOTON_PULSE_ANYWAY:
+        use_fluctuation_predictor=True
     else:
-        if merged_config.DATASET.USES_PHOTON_FLUCTUATION:
-            use_fluctuation_predictor=True
-        else:
-            use_fluctuation_predictor=False
-            
-    logger.log(f"Using fluctuation predictor: {use_fluctuation_predictor}")
-    
-    model = NeurOrientLightning(
-        spi_data['pixel_position_reciprocal'],
-        over_sampling=over_sampling, 
-        photons_per_pulse=photons_per_pulse,
-        use_bifpn=merged_config.MODEL.USE_BIFPN,
-        use_fluctuation_predictor=use_fluctuation_predictor,
-        config_slice2rotmat=config_slice2rotmat,
-        config_intensitynet=config_intensitynet,
-        config_optimization=config_optimization
+        use_fluctuation_predictor=False
+else:
+    if merged_config.DATASET.USES_PHOTON_FLUCTUATION:
+        use_fluctuation_predictor=True
+    else:
+        use_fluctuation_predictor=False
+        
+logger.log(f"Using fluctuation predictor: {use_fluctuation_predictor}")
+
+if hasattr(merged_config.MODEL, "ROTMAT_DIVERSITY"):
+    config_orientation_diversity_loss = {
+        'max': merged_config.MODEL.ROTMAT_DIVERSITY.MAX,
+        'min': merged_config.MODEL.ROTMAT_DIVERSITY.MIN,
+        'scale': merged_config.MODEL.ROTMAT_DIVERSITY.SCALE
+    }
+else:
+    config_orientation_diversity_loss = None
+logger.log(f"config_orientation_diversity_loss: \n", config_orientation_diversity_loss)
+
+model = NeurOrientLightning(
+    spi_data['pixel_position_reciprocal'],
+    over_sampling=over_sampling, 
+    photons_per_pulse=photons_per_pulse,
+    use_bifpn=merged_config.MODEL.USE_BIFPN,
+    use_fluctuation_predictor=use_fluctuation_predictor,
+    config_slice2rotmat=config_slice2rotmat,
+    config_intensitynet=config_intensitynet,
+    config_optimization=config_optimization
+)
+
+logger.log( 
+    'arguments being used in building the model:\n',
+    f'over_sampling={over_sampling}\n',
+    f'photons_per_pulse={photons_per_pulse:.2e}\n',
+    'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
+    'config_optimization: ', '\n', pprint.pformat(config_optimization))
+
+if args.checkpoint is not None:
+    model.load_state_dict(
+        torch.load(args.checkpoint)['state_dict']
     )
-    
-    logger.log( 
-        'arguments being used in building the model:\n',
-        f'over_sampling={over_sampling}\n',
-        f'photons_per_pulse={photons_per_pulse:.2e}\n',
-        'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
-        'config_optimization: ', '\n', pprint.pformat(config_optimization))
+    logger.log(f"Resume training from state_dict of: {args.checkpoint}.")
 
 logger.log(
     "model created with the following architecture:\n",
@@ -258,21 +286,17 @@ logger.log(
 )
 
 # %%
-
-from lightning.pytorch import loggers as pl_loggers
-tb_logger = pl_loggers.TensorBoardLogger(save_dir=dir_chkpt)
-
 checkpoint_callback = ModelCheckpoint(
-    every_n_train_steps=10, save_last=True, save_top_k=1, monitor="val_loss",
+    every_n_train_steps=5, save_last=True, save_top_k=1, monitor="train_loss",
     filename=f'{pdb}-{{epoch}}-{{step}}'
 )
 
 torch.set_float32_matmul_precision('high')
 
-ddp = DDPStrategy(process_group_backend="nccl")
+ddp = DDPStrategy(process_group_backend="nccl", find_unused_parameters=True)
 trainer = L.Trainer(
-    max_epochs=max_epochs, accelerator='gpu', strategy=ddp, logger=tb_logger,
-    callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=10)],
+    max_epochs=max_epochs, accelerator='gpu', strategy=ddp,
+    callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=5)],
     log_every_n_steps=1, devices=num_gpus, sync_batchnorm = True,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 
@@ -285,6 +309,6 @@ dump_log_fname = Path(os.path.join(trainer.logger.log_dir, 'log.txt'))
 dump_log_fname.parent.mkdir(parents=True, exist_ok=True)
 logger.dump_to_file(dump_log_fname)
 
-trainer.fit(model, dataloader_train, dataloader_validate)
+trainer.fit(model, dataloader_train, )
 
 

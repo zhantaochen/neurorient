@@ -16,7 +16,7 @@ from pytorch3d.transforms import rotation_6d_to_matrix
 
 from .external.siren_pytorch import SirenNet
 from .reconstruction.slicing import get_real_mesh, gen_nonuniform_normalized_positions
-from .utils_visualization import display_images_in_parallel
+from .utils_visualization import display_images_in_parallel, display_volumes
 from .lr_scheduler import CosineLRScheduler
 
 class KbNufftRealView(KbNufft):
@@ -29,7 +29,7 @@ class KbNufftRealView(KbNufft):
             real_view_buf = torch.view_as_real(buf)
             self.register_buffer(name, real_view_buf)
 
-class Slice2RotMat(nn.Module):
+class Slice2RotMatScaleFactor(nn.Module):
     def __init__(self, size=18, pretrained=False):
         super().__init__()
         weights = 'DEFAULT' if pretrained else None
@@ -40,84 +40,37 @@ class Slice2RotMat(nn.Module):
         self.resnet.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
         self.resnet.conv1.weight.data = conv1_weight
         # Output 6D rotation matrix
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 6)
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 7)
     
     def forward(self, img):
         if img.ndim == 3:
             img = img.unsqueeze(1)
         embed = self.resnet(img)
-        rotmat = rotation_6d_to_matrix(embed)
-        return rotmat
-
-class Slice2RotMat_BIFPN(nn.Module):
-    def __init__(
-            self, 
-            size=18, 
-            pretrained=False,
-            input_size=(128, 128),
-            num_features=64,
-            num_blocks=1,
-            num_levels=5,
-            regressor_out_features=6,
-            scale=-1,
-            ):
+        rotmat = rotation_6d_to_matrix(embed[...,:6])
+        scale_factor = embed[...,[-1]]
+        return rotmat, scale_factor
+    
+class FluctuationPredictor(nn.Module):
+    def __init__(self, size=18, pretrained=False):
         super().__init__()
-        resnet_type = f"resnet{size}"
-        self.backbone = ImageEncoder(resnet_type, pretrained)
-        self.num_levels = num_levels
-        self.scale = scale
+        weights = 'DEFAULT' if pretrained else None
+        self.resnet = eval(f'resnet.resnet{size}')(weights=weights)
 
-        # Create the adapter layer between backbone and bifpn...
-        output_channels = self.backbone.output_channels
-        self.backbone_to_bifpn = nn.ModuleList([
-            DepthwiseSeparableConv2d(in_channels  = in_channels,
-                                     out_channels = num_features,
-                                     kernel_size  = 1,
-                                     stride       = 1,
-                                     padding      = 0) 
-            if num_blocks > 0 else nn.Identity()
-            for _, in_channels in output_channels.items()
-        ])[-num_levels:]    # Only consider fmaps from the most coarse level
-
-        self.bifpn = BiFPN(num_blocks   = num_blocks,
-                           num_features = num_features,
-                           num_levels   = num_levels) \
-                     if num_blocks > 0 else           \
-                     nn.Identity()
-        with torch.no_grad():
-            _x = torch.randn(1, 1, *input_size)
-            _out_shape = self.forward_without_regressor(_x).shape
-
-        self.regressor_head = nn.Linear(_out_shape[-1], regressor_out_features)
-        del _x, _out_shape
-
-    def forward_without_regressor(self, x):
-        # Calculate and save feature maps in multiple resolutions...
-        fmap_in_backbone_layers = self.backbone(x)
-        fmap_in_backbone_layers = fmap_in_backbone_layers[-self.num_levels:]    # Only consider fmaps from the most coarse level
-
-        # Apply the BiFPN adapter...
-        bifpn_input_list = []
-        for idx, fmap in enumerate(fmap_in_backbone_layers):
-            bifpn_input = self.backbone_to_bifpn[idx](fmap)
-            bifpn_input_list.append(bifpn_input)
-
-        # Apply the BiFPN layer...
-        bifpn_output_list = self.bifpn(bifpn_input_list)
-
-        # Use the N-th feature maps for regression...
-        regressor_input = bifpn_output_list[self.scale]
-        B, C, H, W = regressor_input.shape
-        regressor_input = regressor_input.view(B, C * H * W)
-        return regressor_input
-        
-    def forward(self, x):
-        regressor_input = self.forward_without_regressor(x)
-        logits = self.regressor_head(regressor_input)
-
-        rotmat = rotation_6d_to_matrix(logits)
-        return rotmat
-
+        # Average the weights in the input channels...
+        conv1_weight = self.resnet.conv1.weight.data.mean(dim = 1, keepdim = True)
+        self.resnet.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        self.resnet.conv1.weight.data = conv1_weight
+        # Output 6D rotation matrix
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 1)
+        self.output_relu = nn.ReLU()
+    
+    def forward(self, img):
+        if img.ndim == 3:
+            img = img.unsqueeze(1)
+        output = self.resnet(img)
+        output = self.output_relu(output)
+        return output
+    
 class IntensityNet(nn.Module):
     def __init__(self, *args, **kwargs):
         super().__init__()
@@ -132,6 +85,7 @@ class NeurOrient(nn.Module):
                  over_sampling=1,
                  photons_per_pulse=1e13,
                  use_bifpn=False,
+                 use_fluctuation_predictor=True,
                  config_slice2rotmat={'size': 18, 'pretrained': True},
                  config_intensitynet={'dim_hidden': 256, 'num_layers': 5},):
         super().__init__()
@@ -149,11 +103,8 @@ class NeurOrient(nn.Module):
         del real_mesh, reciprocal_mesh
 
         self.over_sampling = over_sampling
-        if use_bifpn:
-            config_slice2rotmat['input_size'] = (self.image_dimension.item(),)*2
-            self.orientation_predictor = Slice2RotMat_BIFPN(**config_slice2rotmat)
-        else:
-            self.orientation_predictor = Slice2RotMat(**config_slice2rotmat)
+        self.orientation_predictor = Slice2RotMatScaleFactor(**config_slice2rotmat)
+        self.fluctuation_predictor = 1
 
         # setup volume predictor
         self.volume_predictor = IntensityNet(
@@ -161,7 +112,7 @@ class NeurOrient(nn.Module):
             dim_hidden=config_intensitynet['dim_hidden'],
             dim_out=1,
             num_layers=config_intensitynet['num_layers'],
-            final_activation=torch.nn.SiLU(),
+            final_activation=torch.nn.ReLU(),
         )
 
         self.photons_per_pulse = photons_per_pulse
@@ -194,7 +145,7 @@ class NeurOrient(nn.Module):
         slices_input = torch.log(slices_true)
 
         # predict orientations from images
-        orientations = self.image_to_orientation(slices_input)
+        orientations, _ = self.image_to_orientation(slices_input)
         if not return_reconstruction:
             return orientations
         else:
@@ -236,6 +187,7 @@ class NeurOrientLightning(L.LightningModule):
                  over_sampling=1,
                  photons_per_pulse=1e13,
                  use_bifpn=False,
+                 use_fluctuation_predictor=True,
                  config_slice2rotmat={'size': 18, 'pretrained': True},
                  config_intensitynet={'dim_hidden': 256, 'num_layers': 5},
                  config_optimization={'lr': 1e-3, 'weight_decay': 1e-4, 'loss_func': 'MSELoss'}):
@@ -247,6 +199,7 @@ class NeurOrientLightning(L.LightningModule):
             over_sampling=over_sampling,
             photons_per_pulse=photons_per_pulse,
             use_bifpn=use_bifpn,
+            use_fluctuation_predictor=use_fluctuation_predictor,
             config_slice2rotmat=config_slice2rotmat,
             config_intensitynet=config_intensitynet,
         )
@@ -258,7 +211,12 @@ class NeurOrientLightning(L.LightningModule):
         #     self.__setattr__(key, value)
         
         self.configure_optimization = config_optimization
-        self.loss_func = eval(f"torch.nn.{config_optimization['loss_func']}()")
+        if config_optimization['loss_func'] != 'PoissonNLLLoss':
+            self.loss_func = eval(f"torch.nn.{config_optimization['loss_func']}()")
+            self.log_transform = True
+        else:
+            self.loss_func = torch.nn.PoissonNLLLoss(log_input=False, full=True)
+            self.log_transform = False
         
     def training_step(self, batch, batch_idx):
         if isinstance(batch, dict):
@@ -272,27 +230,35 @@ class NeurOrientLightning(L.LightningModule):
 
         # Apply input and general masks and loss scale factor to get input slices.
         slices_input  = input_mask  * general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
-        # Apply general mask and loss scale factor to get target slices.
-        slices_output = general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
 
         # predict orientations from images
-        orientations = self.model.image_to_orientation(slices_input)
+        orientations, slices_scale_factor = self.model.image_to_orientation(slices_input)
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
         HKL = gen_nonuniform_normalized_positions(
             orientations, self.model.pixel_position_reciprocal, self.model.over_sampling)
         # predict slices from HKL
         slices_pred = self.model.predict_slice(HKL).view((-1, 1,) + (self.model.image_dimension,)*2)
-
+        slices_scale_factor = slices_scale_factor.unsqueeze(-1).unsqueeze(-1)
+        if self.log_transform:
+            slices_target  = general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
+            slices_pred    = torch.log((torch.exp(slices_pred) - 1) * slices_scale_factor + 1)
+        else:
+            slices_target  = general_mask * slices_true * self.model.loss_scale_factor
+            slices_pred    = (torch.exp(slices_pred) - 1) * slices_scale_factor
         # We don't want to compare the general masked area
-        loss = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_output[general_mask.bool()].cpu())
+        # loss = self.loss_func((slices_scale_factor * slices_pred)[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
+        loss = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
         self.log("train_loss", loss.item(), prog_bar=True, sync_dist=True)
 
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
             self.get_figure_save_dir()
             num_figs = min(10, slices_true.shape[0])
-            slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.model.loss_scale_factor
+            if self.log_transform:
+                slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.model.loss_scale_factor
+            else:
+                slice_disp = slices_pred[:num_figs] / self.model.loss_scale_factor
             display_images_in_parallel(slice_disp, slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_train.png')
             if isinstance(input_mask, torch.Tensor):
                 slice_disp_input = (torch.exp(slices_input[:num_figs]) - 1) / self.model.loss_scale_factor
@@ -300,10 +266,18 @@ class NeurOrientLightning(L.LightningModule):
                                            titles = ('Input Masks', 'Input Slices'),
                                            save_to=f'{self.fig_path}/version_{self.logger.version}_train_in.png')
             if isinstance(general_mask, torch.Tensor):
-                slice_disp_output = (torch.exp(slices_output[:num_figs]) - 1) / self.model.loss_scale_factor
+                if self.log_transform:
+                    slice_disp_output = (torch.exp(slices_target[:num_figs]) - 1) / self.model.loss_scale_factor
+                else:
+                    slice_disp_output = slices_target[:num_figs] / self.model.loss_scale_factor
                 display_images_in_parallel(general_mask[:num_figs], slice_disp_output, 
                                            titles = ('General Masks', 'Output Slices'),
                                            save_to=f'{self.fig_path}/version_{self.logger.version}_train_out.png')
+            
+            reciprocal_volume = self.predict_reciprocal_volume()
+            display_volumes(reciprocal_volume, closefig=True, cmap='gray',
+                            vmax=1e-3 * reciprocal_volume.max(),
+                            save_to=f'{self.fig_path}/version_{self.logger.version}_train_reciprocal_vol.png')
 
         return loss
 
@@ -320,27 +294,35 @@ class NeurOrientLightning(L.LightningModule):
 
         # Apply input and general masks and loss scale factor to get input slices.
         slices_input  = input_mask  * general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
-        # Apply general mask and loss scale factor to get target slices.
-        slices_output = general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
 
         # predict orientations from images
-        orientations = self.model.image_to_orientation(slices_input)
+        orientations, slices_scale_factor = self.model.image_to_orientation(slices_input)
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
         HKL = gen_nonuniform_normalized_positions(
             orientations, self.model.pixel_position_reciprocal, self.model.over_sampling)
         # predict slices from HKL
         slices_pred = self.model.predict_slice(HKL).view((-1, 1,) + (self.model.image_dimension,)*2)
-
+        slices_scale_factor = slices_scale_factor.unsqueeze(-1).unsqueeze(-1)
+        if self.log_transform:
+            slices_target  = general_mask * torch.log(slices_true * self.model.loss_scale_factor + 1.)
+            slices_pred    = torch.log((torch.exp(slices_pred) - 1) * slices_scale_factor + 1)
+        else:
+            slices_target  = general_mask * slices_true * self.model.loss_scale_factor
+            slices_pred    = (torch.exp(slices_pred) - 1) * slices_scale_factor
         # We don't want to compare the general masked area
-        loss = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_output[general_mask.bool()].cpu())
+        # loss = self.loss_func((slices_scale_factor * slices_pred)[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
+        loss = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
         self.log("val_loss", loss.item(), prog_bar=True, sync_dist=True)
 
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
             self.get_figure_save_dir()
             num_figs = min(10, slices_true.shape[0])
-            slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.model.loss_scale_factor
+            if self.log_transform:
+                slice_disp = (torch.exp(slices_pred[:num_figs]) - 1) / self.model.loss_scale_factor
+            else:
+                slice_disp = slices_pred[:num_figs] / self.model.loss_scale_factor
             display_images_in_parallel(slice_disp, slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_val.png')
             if isinstance(input_mask, torch.Tensor):
                 slice_disp_input = (torch.exp(slices_input[:num_figs]) - 1) / self.model.loss_scale_factor
@@ -348,10 +330,18 @@ class NeurOrientLightning(L.LightningModule):
                                            titles = ('Input Masks', 'Input Slices'),
                                            save_to=f'{self.fig_path}/version_{self.logger.version}_val_in.png')
             if isinstance(general_mask, torch.Tensor):
-                slice_disp_output = (torch.exp(slices_output[:num_figs]) - 1) / self.model.loss_scale_factor
+                if self.log_transform:
+                    slice_disp_output = (torch.exp(slices_target[:num_figs]) - 1) / self.model.loss_scale_factor
+                else:
+                    slice_disp_output = slices_target[:num_figs] / self.model.loss_scale_factor
                 display_images_in_parallel(general_mask[:num_figs], slice_disp_output, 
                                            titles = ('General Masks', 'Output Slices'),
                                            save_to=f'{self.fig_path}/version_{self.logger.version}_val_out.png')
+            
+            reciprocal_volume = self.predict_reciprocal_volume()
+            display_volumes(reciprocal_volume, closefig=True, cmap='gray',
+                            vmax=1e-3 * reciprocal_volume.max(),
+                            save_to=f'{self.fig_path}/version_{self.logger.version}_val_reciprocal_vol.png')
             
             
     def configure_optimizers(self):
@@ -374,3 +364,13 @@ class NeurOrientLightning(L.LightningModule):
                 os.path.join(self.trainer.logger.log_dir, 'figures')
             )
             self.fig_path.mkdir(parents=True, exist_ok=True)
+            
+    def predict_reciprocal_volume(self,):
+        grid_reciprocal = np.pi * self.model.grid_position_reciprocal / self.model.grid_position_reciprocal.max()
+        volume = np.zeros(grid_reciprocal.shape[:3])
+        with torch.no_grad():
+            for i in range(grid_reciprocal.shape[0]):
+                input_coords = grid_reciprocal[i,None,...].to(self.device)
+                volume[i] = self.model.predict_intensity(input_coords).detach().cpu().numpy().squeeze()
+        volume = (np.exp(volume) - 1) / self.model.loss_scale_factor
+        return volume.clip(0.0)

@@ -16,7 +16,7 @@ def uniform_points_on_sphere(n_points, radius=1, seed=None, visualize=False):
     
     return points
 
-def visualize_points_on_sphere(points, ax=None):
+def visualize_points_on_sphere(points, ax=None, marker='o', color='b'):
     if ax is None:
         fig, ax = plt.subplots(1, 1, subplot_kw=dict(projection='3d'))
         
@@ -29,7 +29,7 @@ def visualize_points_on_sphere(points, ax=None):
     
     ax.plot_wireframe(x, y, z, color='gray', rstride=1, cstride=1, alpha=0.2)
     
-    ax.scatter(points[:, 0], points[:, 1], points[:, 2])
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2], marker=marker, color=color)
     ax.set_xlabel('x')
     ax.set_ylabel('y')
     ax.set_zlabel('z')

@@ -183,22 +183,22 @@ class BeamStopMask_from_file:
         else:
             return output
         
-class RandomRotation:
-    def __init__(self, degrees, 
-                 interpolation=torchvision.transforms.InterpolationMode.NEAREST, 
-                 expand=False, 
-                 center=None, 
-                 fill=0,
-                 return_mask=True):
-        self.rotater = torchvision.transforms.RandomRotation(
-            degrees, interpolation=interpolation, expand=expand, center=center, fill=fill)
-        self.return_mask = return_mask
-        return None
+# class RandomRotation:
+#     def __init__(self, degrees, 
+#                  interpolation=torchvision.transforms.InterpolationMode.NEAREST, 
+#                  expand=False, 
+#                  center=None, 
+#                  fill=0,
+#                  return_mask=True):
+#         self.rotater = torchvision.transforms.RandomRotation(
+#             degrees, interpolation=interpolation, expand=expand, center=center, fill=fill)
+#         self.return_mask = return_mask
+#         return None
     
-    def __call__(self, img):
-        img_out = self.rotater(img)
+#     def __call__(self, img):
+#         img_out = self.rotater(img)
         
-        if self.return_mask:
-            return img_out, torch.ones_like(img_out)
-        else:
-            return img_out
+#         if self.return_mask:
+#             return img_out, torch.ones_like(img_out)
+#         else:
+#             return img_out

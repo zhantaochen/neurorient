@@ -18,6 +18,7 @@ class Sine(nn.Module):
     def __init__(self, w0 = 1.):
         super().__init__()
         self.w0 = w0
+        # self.register_parameter('w0', nn.Parameter(torch.tensor(float(w0))) if not isinstance(w0, torch.Tensor) else w0)
     def forward(self, x):
         return torch.sin(self.w0 * x)
 

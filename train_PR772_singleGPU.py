@@ -20,10 +20,10 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.strategies import DDPStrategy
 
-from neurorient.model           import NeurOrientLightning
+from neurorient.model_PR772     import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform, DictionaryDataset
 from neurorient.logger          import Logger
-from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask, BeamStopMask_from_file
+from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask, BeamStopMask_from_file, RandomRotation
 from neurorient.configurator    import Configurator
 # from neurorient.lr_scheduler    import CosineLRScheduler
 from neurorient.config          import _CONFIG
@@ -100,7 +100,7 @@ spi_data = torch.load(os.path.join(dir_dataset, data_file_name))
 
 # Set global seed and split data...
 total_num_data    = len(spi_data['intensities'])
-data              = spi_data['intensities'][:int(total_num_data * frac_total)] * merged_config.DATASET.INCREASE_FACTOR
+data              = spi_data['intensities'][:int(total_num_data * frac_total)]
 spi_data_train    = data[:int(len(data) * frac_train) ]
 spi_data_validate = data[ int(len(data) * frac_train):]
 
@@ -141,6 +141,16 @@ if merged_config.DATASET.USES_BEAM_STOP_MASK:
                                     return_mask        = True)
         transform_list.append(beam_stop_mask)
         logger.log(f'transformation: beam stop mask applied to training and validation datasets.')
+
+if merged_config.DATASET.USES_RANDOM_ROTATION:
+    import torchvision
+    random_rotation = RandomRotation(
+        degrees=(0, 360), return_mask=False,
+        interpolation=torchvision.transforms.InterpolationMode.BILINEAR
+    )
+    
+    transform_list.append(random_rotation)
+    logger.log(f'transformation: using random rotation.')
     
 if merged_config.DATASET.USES_RANDOM_PATCH:
     # set up random patch transformation
@@ -197,6 +207,7 @@ sampler_train    = None
 dataloader_train = torch.utils.data.DataLoader( dataset_train,
                                                 sampler     = sampler_train,
                                                 shuffle     = True,
+                                                pin_memory  = True,
                                                 batch_size  = size_batch,
                                                 num_workers = num_workers, )
 
@@ -204,6 +215,7 @@ sampler_validate    = None
 dataloader_validate = torch.utils.data.DataLoader( dataset_validate,
                                                    sampler     = sampler_validate,
                                                    shuffle     = False,
+                                                   pin_memory  = True,
                                                    batch_size  = size_batch,
                                                    num_workers = num_workers, )
 
@@ -234,6 +246,16 @@ else:
             
     logger.log(f"Using fluctuation predictor: {use_fluctuation_predictor}")
     
+    if hasattr(merged_config.MODEL, "ROTMAT_DIVERSITY"):
+        config_orientation_diversity_loss = {
+            'max': merged_config.MODEL.ROTMAT_DIVERSITY.MAX,
+            'min': merged_config.MODEL.ROTMAT_DIVERSITY.MIN,
+            'scale': merged_config.MODEL.ROTMAT_DIVERSITY.SCALE
+        }
+    else:
+        config_orientation_diversity_loss = None
+    logger.log(f"config_orientation_diversity_loss: \n", config_orientation_diversity_loss)
+    
     model = NeurOrientLightning(
         spi_data['pixel_position_reciprocal'],
         over_sampling=over_sampling, 
@@ -242,7 +264,8 @@ else:
         use_fluctuation_predictor=use_fluctuation_predictor,
         config_slice2rotmat=config_slice2rotmat,
         config_intensitynet=config_intensitynet,
-        config_optimization=config_optimization
+        config_optimization=config_optimization,
+        config_orientation_diversity_loss=config_orientation_diversity_loss
     )
     
     logger.log( 
@@ -258,10 +281,6 @@ logger.log(
 )
 
 # %%
-
-from lightning.pytorch import loggers as pl_loggers
-tb_logger = pl_loggers.TensorBoardLogger(save_dir=dir_chkpt)
-
 checkpoint_callback = ModelCheckpoint(
     every_n_train_steps=10, save_last=True, save_top_k=1, monitor="val_loss",
     filename=f'{pdb}-{{epoch}}-{{step}}'
@@ -269,9 +288,8 @@ checkpoint_callback = ModelCheckpoint(
 
 torch.set_float32_matmul_precision('high')
 
-ddp = DDPStrategy(process_group_backend="nccl")
 trainer = L.Trainer(
-    max_epochs=max_epochs, accelerator='gpu', strategy=ddp, logger=tb_logger,
+    max_epochs=max_epochs, accelerator='gpu',
     callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=10)],
     log_every_n_steps=1, devices=num_gpus, sync_batchnorm = True,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
