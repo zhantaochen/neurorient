@@ -194,7 +194,7 @@ def display_images_pcolormesh(images, columns, vmax=None, size=3,
     
 def display_images_in_parallel(
         tensors1, tensors2, 
-        titles=('Predictions', 'True Values'), ax=None, save_to=None, closefig=True):
+        titles=('Predictions', 'True Values'), ax=None, save_to=None, closefig=True, cmap='gray'):
     """
     Plots two lists of tensors side by side.
     :param tensors1: List of tensors, numpy arrays, or images of shape Nxbxb (or similar shape).
@@ -211,26 +211,27 @@ def display_images_in_parallel(
     if ax is None:
         fig, ax = plt.subplots(2, N, figsize=(3 * N, 6.5))
     if N == 1:
-        ax[0].imshow(tensors1[0], cmap='gray', vmax=max(tensors1[0].max() * 5e-3, tensors1[0].min()))
+        ax[0].imshow(tensors1[0], cmap=cmap, vmax=max(tensors1[0].max() * 5e-3, tensors1[0].min()))
         ax[0].set_title(f"{titles[0]} 0")
         ax[0].axis('off')
-        ax[1].imshow(tensors2[0], cmap='gray', vmax=max(tensors2[0].max() * 5e-3, tensors2[0].min()))
+        ax[1].imshow(tensors2[0], cmap=cmap, vmax=max(tensors2[0].max() * 5e-3, tensors2[0].min()))
         ax[1].set_title(f"{titles[1]} 0")
         ax[1].axis('off')
     else:
         for i in range(N):
-            ax[0, i].imshow(tensors1[i], cmap='gray', vmax=max(tensors1[i].max() * 5e-3, tensors1[i].min()))
+            ax[0, i].imshow(tensors1[i], cmap=cmap, vmax=max(tensors1[i].max() * 5e-3, tensors1[i].min()))
             ax[0, i].set_title(f"{titles[0]} {i}")
             ax[0, i].axis('off')
-            ax[1, i].imshow(tensors2[i], cmap='gray', vmax=max(tensors2[i].max() * 5e-3, tensors2[i].min()))
+            ax[1, i].imshow(tensors2[i], cmap=cmap, vmax=max(tensors2[i].max() * 5e-3, tensors2[i].min()))
             ax[1, i].set_title(f"{titles[1]} {i}")
             ax[1, i].axis('off')
     plt.tight_layout()
     # plt.show()
     if save_to is not None:
         fig.savefig(save_to, bbox_inches='tight')
+        plt.close()
     if closefig:
-        plt.close(fig)
+        plt.close()
 
 def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None, axes_labels='xyz', titles=None, 
                     ticklabelssoff=True, fontsize_mid=14):
@@ -291,8 +292,9 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
     # plt.show()
     if save_to is not None:
         fig.savefig(save_to, bbox_inches='tight')
+        plt.close()
     if closefig:
-        plt.close(fig)
+        plt.close()
 
 
 def display_volumes_pcolormesh(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None, axes_labels='xyz', titles=None, 
@@ -361,8 +363,9 @@ def display_volumes_pcolormesh(volumes, ax=None, save_to=None, closefig=True, vm
     # plt.show()
     if save_to is not None:
         fig.savefig(save_to, bbox_inches='tight')
+        plt.close()
     if closefig:
-        plt.close(fig)
+        plt.close()
 
 
 # def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None):

@@ -20,7 +20,7 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.strategies import DDPStrategy
 
-from neurorient.model_codebook  import NeurOrientLightning
+from neurorient.model_pg_vol    import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform, DictionaryDataset
 from neurorient.logger          import Logger 
 from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask, BeamStopMask_from_file
@@ -61,11 +61,8 @@ logger.log(f"overwrite default model configurations with customed configurations
 
 
 if hasattr(merged_config.TRAINING, 'SEED'):
-    if merged_config.TRAINING.SEED > 0:
-        L.seed_everything(merged_config.TRAINING.SEED)
-        logger.log(f"SEED set to {merged_config.TRAINING.SEED}.")
-    else:
-        logger.log(f"SEED not specified and not set.")
+    L.seed_everything(merged_config.TRAINING.SEED)
+    logger.log(f"SEED set to {merged_config.TRAINING.SEED}.")
 else:
     logger.log(f"SEED not specified and not set.")
 
@@ -290,7 +287,7 @@ logger.log(
 
 # %%
 checkpoint_callback = ModelCheckpoint(
-    every_n_train_steps=5, save_last=True, save_top_k=2, monitor="val/loss",
+    every_n_train_steps=5, save_last=True, save_top_k=1, monitor="train_loss",
     filename=f'{pdb}-{{epoch}}-{{step}}'
 )
 
@@ -312,6 +309,6 @@ dump_log_fname = Path(os.path.join(trainer.logger.log_dir, 'log.txt'))
 dump_log_fname.parent.mkdir(parents=True, exist_ok=True)
 logger.dump_to_file(dump_log_fname)
 
-trainer.fit(model, dataloader_train, dataloader_validate)
+trainer.fit(model, dataloader_train, )
 
 

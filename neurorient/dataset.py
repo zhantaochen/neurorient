@@ -45,7 +45,7 @@ class TensorDatasetWithTransform(Dataset):
         input_mask = torch.ones_like(img)
         general_mask = torch.ones_like(img)
         
-        if self.seed is not None:
+        if self.seed is not None and self.seed > 0:
             torch.manual_seed(self.seed + idx)
             np.random.seed(self.seed + idx)
         photon_flux_factor = torch.tensor([1.,])
