@@ -29,6 +29,8 @@ from .equivariant_mlp import SymmetrizedFeature, RotationFolding
 
 from .external.quantizer import VectorQuantizer
 
+from .encoder_i2s import I2S
+
 class KbNufftRealView(KbNufft):
     def __init__(self, im_size, grid_size = None):
         super(KbNufftRealView, self).__init__(im_size, grid_size)
@@ -98,25 +100,23 @@ class Slice2RotMat(nn.Module):
 class Slice2RotMat_CodeBook(nn.Module):
     def __init__(self, rec_level=3, image_dimension=128):
         super().__init__()
-        # self.register_parameter('embedding', torch.nn.Parameter(euler_angles_to_matrix(euler_yxy, convention='YXY')))
-        # self.register_buffer('ref_rotations', euler_angles_to_matrix(euler_yxy, convention='YXY'))
         
-        # self.n_ref = 10000
-        # self.register_buffer('ref_rotations', random_rotations(10000))
-        
-        euler_yxy = so3_healpix_grid(rec_level).T
-        grid_rotations = euler_angles_to_matrix(euler_yxy, convention='YXY')
-        self.register_buffer('ref_rotations', grid_rotations)
+        # euler_yxy = so3_healpix_grid(rec_level).T
+        # grid_rotations = euler_angles_to_matrix(euler_yxy, convention='YXY')
+        # self.register_buffer('ref_rotations', grid_rotations)
         # rand_rotations = random_rotations(grid_rotations.shape[0] // 4)
         # self.register_buffer('ref_rotations', torch.cat([grid_rotations, rand_rotations], dim=0))
-        self.n_ref = self.ref_rotations.shape[0]
+
+        self.i2s = I2S(rec_level=rec_level, input_size=image_dimension)
+
+        self.n_ref = self.i2s.output_rotmats.shape[0]
         
         self._max_val = 100.0
         self.max_val = 100.0
         
         print(f'Initialized with {self.n_ref} reference rotations and max_val: {self.max_val}')
         self.get_dummy_ref_images(None, None, image_dimension)
-        
+
     @property
     def max_val(self):
         return self._max_val
@@ -133,11 +133,11 @@ class Slice2RotMat_CodeBook(nn.Module):
     def get_ref_images(self, intens_func, pixel_position_reciprocal, image_dimension, over_sampling=1):
         with torch.no_grad():
             # print(HKL.shape)
-            rotation_dset = TensorDataset(self.ref_rotations)
+            rotation_dset = TensorDataset(self.i2s.output_rotmats)
             rotation_dloader = DataLoader(rotation_dset, batch_size=50, shuffle=False)
             _ref_images = []
             for batch in tqdm(rotation_dloader, miniters=int(len(rotation_dloader)/10)):
-                _rotations = batch[0].to(self.ref_rotations.device)
+                _rotations = batch[0].to(self.i2s.output_rotmats.device)
                 HKL = gen_nonuniform_normalized_positions(
                     _rotations, pixel_position_reciprocal, over_sampling).T
                 _intens = intens_func(HKL)
@@ -146,8 +146,11 @@ class Slice2RotMat_CodeBook(nn.Module):
         self.register_buffer('ref_images', ref_images)
         print(f'Reference images generated, sampling at max_val: {self.max_val}')
         
+    # def normalize_to_range(self, x, min_val=0.0, max_val=2*np.pi):
+    #     return (x - x.min()) / (x.max() - x.min() + 1e-8) * (max_val - min_val) + min_val
+
     def normalize_to_range(self, x, min_val=0.0, max_val=2*np.pi):
-        return (x - x.min()) / (x.max() - x.min() + 1e-8) * (max_val - min_val) + min_val
+        return (x - x.amin(dim=-1, keepdim=True)) / (x.amax(dim=-1, keepdim=True) - x.amin(dim=-1, keepdim=True) + 1e-8) * (max_val - min_val) + min_val
         
     def distance_func_L2(self, image):
         if image.ndim == 4:
@@ -170,6 +173,10 @@ class Slice2RotMat_CodeBook(nn.Module):
     def forward(self, image):
         if image.ndim == 4:
             image = image.squeeze(1)
+
+        logits_pred = self.i2s.compute_logits(image.unsqueeze(1))
+        probs_pred = torch.softmax(logits_pred, dim=-1)
+
         dist = self.distance_func_PC(image)
         # print(image.shape, self.ref_images.shape, dist.shape, self.n_ref)
         
@@ -177,7 +184,7 @@ class Slice2RotMat_CodeBook(nn.Module):
         # min_encodings = torch.zeros(
         #     min_encoding_indices.shape[0], self.n_ref).to(dist.device)
         # min_encodings.scatter_(1, min_encoding_indices, 1)
-        # rotations = torch.einsum('bn, nij->bij', min_encodings, self.ref_rotations)
+        # rotations = torch.einsum('bn, nij->bij', min_encodings, self.i2s.output_rotmats)
         
         if hasattr(self, 'max_val'):
             max_val = self.max_val
@@ -185,11 +192,26 @@ class Slice2RotMat_CodeBook(nn.Module):
             max_val = 100.0
         
         dist_norm = self.normalize_to_range(dist, min_val=0.0, max_val=max_val)
-        probs = torch.softmax(-dist_norm, dim=-1)
+        probs_samp = torch.softmax(-dist_norm, dim=-1)
         
-        indices = torch.multinomial(probs, 1)
-        rotations = self.ref_rotations[indices.squeeze(1)]
-        return rotations
+        indices = torch.multinomial(probs_samp, 1).squeeze(1)
+
+        probs_oh = nn.functional.one_hot(indices, num_classes=self.n_ref)
+
+        probs = probs_oh.detach() + probs_pred - probs_pred.detach()
+
+        rotations = torch.einsum('bn, nij->bij', probs, self.i2s.output_rotmats)
+
+        loss = nn.functional.cross_entropy(logits_pred, probs_samp)
+
+        output = {
+            'loss': loss,
+            'rotations': rotations,
+            'probs_max': probs_samp.amax(dim=-1).mean(),
+            'probs_min': probs_samp.amin(dim=-1).mean(),
+        }
+
+        return output
     
 class FluctuationPredictor(nn.Module):
     def __init__(self, size=18, pretrained=False):
@@ -220,24 +242,37 @@ class IntensityNet(nn.Module):
     def forward(self, x):
         return self.net_mag(x) + self.net_mag(-x)
 
-# class IntensityNet(nn.Module):
-#     def __init__(self, *args, **kwargs):
-#         super().__init__()
-#         self.sym_net = SymmetrizedFeature('I')
-#         self.net_mag = SirenNet(*args, **kwargs)
+class IntensityNet_GSInv(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.sym_net = SymmetrizedFeature('I')
+        self.net_mag = SirenNet(*args, **kwargs)
 
-#     def forward(self, x):
-#         x_symm = self.sym_net(x)
-#         # x_symm = x
-#         return self.net_mag(x_symm)
+    def forward(self, x):
+        x_symm = self.sym_net(x)
+        # x_symm = x
+        return self.net_mag(x_symm)
 
-# class IntensityNet(nn.Module):
-#     def __init__(self, *args, **kwargs):
-#         super().__init__()
-#         self.net = IcosahedralMLP()
-    
-#     def forward(self, x):
-#         return self.net(x)
+class IntensityNet_Mixed(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.sym_net = SymmetrizedFeature('I')
+        self.net_mag = SirenNet(*args, **kwargs)
+        self.net_adj = SirenNet(*args, **kwargs)
+
+        self.embed = torch.nn.Sequential(
+            torch.nn.Linear(3, 64),
+            torch.nn.SiLU(),
+            torch.nn.Linear(64, 3),
+        )
+
+    def forward(self, x):
+        x_symm = self.sym_net(x)
+        y_symm = self.net_mag(x_symm)
+        y_adj = nn.functional.tanh(self.net_adj(
+            self.embed(x) + self.embed(-x)
+        )) 
+        return y_symm + y_adj
 
 class NeurOrient(nn.Module):
     def __init__(self, 
@@ -245,7 +280,7 @@ class NeurOrient(nn.Module):
                  over_sampling=1,
                  photons_per_pulse=1e13,
                  use_bifpn=False,
-                 rec_level=4,
+                 rec_level=3,
                  use_fluctuation_predictor=True,
                  config_slice2rotmat={'size': 18, 'pretrained': True},
                  config_intensitynet={'dim_hidden': 256, 'num_layers': 5},):
@@ -266,14 +301,22 @@ class NeurOrient(nn.Module):
         self.over_sampling = over_sampling
             
         # self.orientation_predictor = Slice2RotMat(**config_slice2rotmat)
-        self.orientation_predictor = Slice2RotMat_CodeBook(rec_level=rec_level, image_dimension=self.image_dimension)
+        self.orientation_predictor = Slice2RotMat_CodeBook(rec_level=rec_level, 
+                                                           image_dimension=self.image_dimension)
         if use_fluctuation_predictor:
             self.fluctuation_predictor = FluctuationPredictor(config_slice2rotmat['size'], config_slice2rotmat['pretrained'])
         else:
             self.fluctuation_predictor = None
 
         # setup volume predictor
-        self.volume_predictor = IntensityNet(
+        # self.volume_predictor = IntensityNet(
+        #     dim_in=3,
+        #     dim_hidden=config_intensitynet['dim_hidden'],
+        #     dim_out=1,
+        #     num_layers=config_intensitynet['num_layers'],
+        #     # final_activation=torch.nn.ReLU(),
+        # )
+        self.volume_predictor = IntensityNet_Mixed(
             dim_in=3,
             dim_hidden=config_intensitynet['dim_hidden'],
             dim_out=1,
@@ -369,21 +412,6 @@ class NeurOrientLightning(L.LightningModule):
             config_intensitynet=config_intensitynet,
         )
         
-        symm_ops = so3_point_group_operations('I')
-        self.register_buffer('symm_ops', symm_ops)
-        self.training_zoom_level = 1/3
-        self.register_buffer('training_reciprocal_grid', self.get_zoomed_reciprocal_grid(zoom=self.training_zoom_level))
-        self.register_buffer('training_symm_reciprocal_grid', self.get_symmetrized_coordinates(self.training_reciprocal_grid, symm_ops))
-        # self.training_reciprocal_grid = self.get_zoomed_reciprocal_grid(zoom=self.training_zoom_level)
-        # self.training_symm_reciprocal_grid = self.get_symmetrized_coordinates(self.training_reciprocal_grid, symm_ops)
-        
-        # self.lr = config_optimization['lr']
-        # self.weight_decay = config_optimization['weight_decay']
-        # self.loss_func = eval(f"torch.nn.{config_optimization['loss_func']}()")
-        
-        # for key, value in config_optimization.items():
-        #     self.__setattr__(key, value)
-        
         self.configure_optimization = config_optimization
         if config_optimization['loss_func'] != 'PoissonNLLLoss':
             self.loss_func = eval(f"torch.nn.{config_optimization['loss_func']}()")
@@ -391,10 +419,13 @@ class NeurOrientLightning(L.LightningModule):
         else:
             self.loss_func = torch.nn.PoissonNLLLoss(log_input=False, full=True)
             self.log_transform = False
+            self.model.volume_predictor = torch.nn.Sequential(
+                self.model.volume_predictor,
+                torch.nn.Softplus()
+            )
             
     def on_train_epoch_start(self, *args, **kwargs):
-        # self.model.orientation_predictor.max_val = 100 - 99 * np.exp(- 0.1 * self.current_epoch)
-        self.model.orientation_predictor.max_val = 1000 - 999 * np.exp(- 0.001 * self.current_epoch)
+        self.model.orientation_predictor.max_val = 100 - 99 * np.exp(- 0.1 * self.current_epoch)
         self.model.orientation_predictor.get_ref_images(
             self.model.volume_predictor, self.model.pixel_position_reciprocal, self.model.image_dimension, self.model.over_sampling)
         
@@ -416,34 +447,40 @@ class NeurOrientLightning(L.LightningModule):
 
         # predict orientations from images
         orientations_out = self.model.image_to_orientation(slices_input)
-        if isinstance(orientations_out, tuple):
-            loss_vq, orientations, perplexity = orientations_out
-        else:
-            orientations = orientations_out
-            loss_vq = torch.tensor(0.0).to(self.device)
-            perplexity = torch.tensor(0.0).to(self.device)
+        orientations = orientations_out['rotations']
+        loss_logits = orientations_out['loss']
+        self.log(f"{task_type}/loss_logits", loss_logits.item(), sync_dist=True)
+
+        for k, v in orientations_out.items():
+            if k not in ['loss', 'rotations']:
+                self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
         HKL = gen_nonuniform_normalized_positions(
             orientations, self.model.pixel_position_reciprocal, self.model.over_sampling)
+        if HKL.ndim == 2 and HKL.shape[0] == 3:
+            HKL = HKL.T
         # predict slices from HKL
-        _slices_pred = self.model.predict_slice(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(1e-8), np.log(2500 * self.model.loss_scale_factor))
+        _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(1e-8), np.log(2500 * self.model.loss_scale_factor))
+
         if self.model.fluctuation_predictor is not None:
             slices_scale_factor = self.model.fluctuation_predictor(slices_input).unsqueeze(-1).unsqueeze(-1)
+        else:
+            slices_scale_factor = 1.0
+        
+        if self.log_transform:
             slices_target  = torch.log(general_mask * slices_true * self.model.loss_scale_factor + 1e-8)
             slices_pred    = torch.log(general_mask * torch.exp(_slices_pred) * slices_scale_factor + 1e-8)
         else:
             slices_target  = general_mask * slices_true * self.model.loss_scale_factor
-        # We don't want to compare the general masked area
-        # loss = self.loss_func((slices_scale_factor * slices_pred)[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
+            slices_pred    = general_mask * _slices_pred * slices_scale_factor
+
         loss_reco = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
         
-        loss = loss_reco + loss_vq - 1e-4 * perplexity
-        # loss = loss_reco
-        self.log(f"{task_type}/loss", loss.item(), prog_bar=True, sync_dist=True)
+        loss = loss_reco + loss_logits
         self.log(f"{task_type}/loss_reco", loss_reco.item(), sync_dist=True)
-        self.log(f"{task_type}/loss_vq", loss_vq.item(), sync_dist=True)
-        self.log(f"{task_type}/perplexity", perplexity.item(), sync_dist=True)
+        self.log(f"{task_type}/loss", loss.item(), prog_bar=True, sync_dist=True)
 
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
@@ -492,34 +529,40 @@ class NeurOrientLightning(L.LightningModule):
 
         # predict orientations from images
         orientations_out = self.model.image_to_orientation(slices_input)
-        if isinstance(orientations_out, tuple):
-            loss_vq, orientations, perplexity = orientations_out
-        else:
-            orientations = orientations_out
-            loss_vq = torch.tensor(0.0).to(self.device)
-            perplexity = torch.tensor(0.0).to(self.device)
+        orientations = orientations_out['rotations']
+        loss_logits = orientations_out['loss']
+        self.log(f"{task_type}/loss_logits", loss_logits.item(), sync_dist=True)
+
+        for k, v in orientations_out.items():
+            if k not in ['loss', 'rotations']:
+                self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
         HKL = gen_nonuniform_normalized_positions(
             orientations, self.model.pixel_position_reciprocal, self.model.over_sampling)
+        if HKL.ndim == 2 and HKL.shape[0] == 3:
+            HKL = HKL.T
         # predict slices from HKL
-        _slices_pred = self.model.predict_slice(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(1e-8), np.log(2500 * self.model.loss_scale_factor))
+        _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(1e-8), np.log(2500 * self.model.loss_scale_factor))
+
         if self.model.fluctuation_predictor is not None:
             slices_scale_factor = self.model.fluctuation_predictor(slices_input).unsqueeze(-1).unsqueeze(-1)
+        else:
+            slices_scale_factor = 1.0
+        
+        if self.log_transform:
             slices_target  = torch.log(general_mask * slices_true * self.model.loss_scale_factor + 1e-8)
             slices_pred    = torch.log(general_mask * torch.exp(_slices_pred) * slices_scale_factor + 1e-8)
         else:
             slices_target  = general_mask * slices_true * self.model.loss_scale_factor
-        # We don't want to compare the general masked area
-        # loss = self.loss_func((slices_scale_factor * slices_pred)[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
+            slices_pred    = general_mask * _slices_pred * slices_scale_factor
+            
         loss_reco = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
         
-        loss = loss_reco + loss_vq - 1e-4 * perplexity
-        # loss = loss_reco
-        self.log(f"{task_type}/loss", loss.item(), prog_bar=True, sync_dist=True)
+        loss = loss_reco + loss_logits
         self.log(f"{task_type}/loss_reco", loss_reco.item(), sync_dist=True)
-        self.log(f"{task_type}/loss_vq", loss_vq.item(), sync_dist=True)
-        self.log(f"{task_type}/perplexity", perplexity.item(), sync_dist=True)
+        self.log(f"{task_type}/loss", loss.item(), prog_bar=True, sync_dist=True)
 
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
         if self.global_step % 10 == 0:
@@ -568,70 +611,3 @@ class NeurOrientLightning(L.LightningModule):
         
         volume = np.exp(volume) / self.model.loss_scale_factor
         return volume.clip(0.0)
-    
-    def get_symmetrized_coordinates(self, grid, symm_ops):
-        """
-        Get symmetrized coordinates for a given grid
-        params:
-            grid: torch.Tensor of shape (..., 3)
-            symm_ops: torch.Tensor of shape (N, 3, 3)
-        """
-        symm_ops = symm_ops.to(self.device).to(self.dtype)
-        grid = grid.to(self.device).to(self.dtype)
-        
-        grid_shape = grid.shape[:-1]
-        grid_flat = grid.view(-1, 3)
-        
-        rot_grid = torch.einsum('sij, bi -> sbj', symm_ops, grid_flat).view(-1, *grid_shape, 3)
-        
-        # rot_grid_test = torch.einsum('sij, bj -> sbi', symm_ops.transpose(1,2), grid_flat).view(-1, *grid_shape, 3)
-        # print(torch.allclose(rot_grid, rot_grid_test))
-        
-        return rot_grid
-
-    def get_zoomed_reciprocal_grid(self, zoom=1.0):
-        grid_reciprocal = np.pi * self.model.grid_position_reciprocal / self.model.grid_position_reciprocal.max()
-        if zoom != 1.0:
-            grid_reciprocal = scipy.ndimage.zoom(grid_reciprocal.detach().cpu().numpy(), (zoom,zoom,zoom,1), order=1)
-            grid_reciprocal = torch.from_numpy(grid_reciprocal).to(self.device)
-        return grid_reciprocal
-    
-    
-    def predict_symmetrized_reciprocal_volume(self, symm_ops, zoom=1.0):
-        grid_reciprocal = self.get_zoomed_reciprocal_grid(zoom=zoom)
-        
-        volume = torch.zeros((symm_ops.shape[0], *grid_reciprocal.shape[:3])).to(self.device).to(self.dtype)
-        symm_grid_reciprocal = self.get_symmetrized_coordinates(grid_reciprocal, symm_ops)
-        for i in range(symm_ops.shape[0]):
-            for j in range(grid_reciprocal.shape[0]):
-                input_coords = symm_grid_reciprocal[i,j,None,...].to(self.device)
-                volume[i,j] = self.model.predict_intensity(input_coords)
-        
-        volume = torch.exp(volume) / self.model.loss_scale_factor
-        return volume
-    
-    def _predict_symmetrized_reciprocal_volume(self, symm_grid_reciprocal):
-        
-        volume = torch.zeros(symm_grid_reciprocal.shape[:-1]).to(self.device).to(self.dtype)
-        # for i in range(symm_grid_reciprocal.shape[0]):
-        #     for j in range(symm_grid_reciprocal.shape[1]):
-        #         input_coords = symm_grid_reciprocal[i,j,None,...].to(self.device)
-        #         volume[i,j] = self.model.predict_intensity(input_coords)
-        for i in range(symm_grid_reciprocal.shape[0]):
-            input_coords = symm_grid_reciprocal[i,None,...].to(self.device)
-            _volume = self.model.predict_intensity(input_coords)
-            volume[i] = _volume
-        
-        volume = torch.exp(volume) / self.model.loss_scale_factor
-        
-        return volume
-
-    
-    def volume_symmetry_loss(self, ):
-        selected_idx = np.random.choice(np.arange(1, self.symm_ops.shape[0]), 2, replace=False).tolist()
-        selected_idx = [0,] + selected_idx
-        
-        selected_idx = torch.tensor(selected_idx).to(self.device)
-        symm_volume = self._predict_symmetrized_reciprocal_volume(self.training_symm_reciprocal_grid[selected_idx])
-        loss = (symm_volume - symm_volume[0,None]).abs().mean()
-        return loss

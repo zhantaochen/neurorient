@@ -103,10 +103,10 @@ def shrink_wrap(sigma, rho_, support_, method=None, weight=1.0, cutoff=0.05):
         method = "std"
     if method == "std":
         threshold = torch.std(rho_gauss_) * weight
-        support_[:] = rho_gauss_ > threshold
+        support_[:] = rho_gauss_ >= threshold
     elif method == "max":
         threshold = rho_abs_.max() * cutoff * weight
-        support_[:] = rho_gauss_ > threshold
+        support_[:] = rho_gauss_ >= threshold
     elif method == "adaptive":
         threshold = adaptive_threshold(rho_gauss_, 3, weight)
         support_[:] = rho_gauss_ > threshold
@@ -198,14 +198,139 @@ def step_HIO(beta, rho_, amplitude_, amp_mask_, support_, rho_max):
     rho_[i_overmax] += 2 * beta * rho_mod_[i_overmax] - rho_max
     return rho_
 
+# def step_phase(rho_, amplitude_, amp_mask_, support_):
+#     rho_hat_ = torch.fft.fftn(rho_)
+#     phases_ = torch.angle(rho_hat_)
+#     rho_hat_mod_ = torch.where(amp_mask_, amplitude_ * torch.exp(1j * phases_), rho_hat_)
+#     rho_mod_ = torch.fft.ifftn(rho_hat_mod_).real
+
+#     support_star_ = torch.logical_and(support_, rho_mod_>0)
+#     return rho_mod_, support_star_
+
+# import torch
+
 def step_phase(rho_, amplitude_, amp_mask_, support_):
+    """
+    Same as in your example:
+      1. Forward FFT to get rho_hat_
+      2. Replace magnitudes with 'amplitude_' where amp_mask_ is True
+      3. Inverse FFT to get rho_mod_ in real space
+      4. Create a 'support_star_' to identify inside-support + positivity
+    """
+    # Fourier transform
     rho_hat_ = torch.fft.fftn(rho_)
+
+    # Extract phases
     phases_ = torch.angle(rho_hat_)
-    rho_hat_mod_ = torch.where(amp_mask_, amplitude_ * torch.exp(1j * phases_), rho_hat_)
+
+    # Enforce amplitude constraints
+    rho_hat_mod_ = torch.where(
+        amp_mask_, 
+        amplitude_ * torch.exp(1j * phases_),  # new amplitude, old phase
+        rho_hat_ * 0.
+    )
+
+    # Inverse FFT to get the updated density
     rho_mod_ = torch.fft.ifftn(rho_hat_mod_).real
 
-    support_star_ = torch.logical_and(support_, rho_mod_>0)
+    # Usually we keep only positive values in the support (optional)
+    support_star_ = torch.logical_and(support_, rho_mod_ > 0)
     return rho_mod_, support_star_
+
+
+def step_cHIO(beta, rho_, amplitude_, amp_mask_, support_, rho_max):
+    """
+    Continuous Hybrid Input–Output (cHIO).
+
+    :param beta:        feedback constant
+    :param rho_:        electron density estimate (in/out)
+    :param amplitude_:  desired Fourier amplitudes
+    :param amp_mask_:   mask indicating which Fourier pixels to enforce
+    :param support_:    binary mask for object's support
+    :param rho_max:     maximum permitted electron density value
+    """
+    # 1) Take the current density rho_, enforce Fourier magnitude constraints
+    rho_mod_, support_star_ = step_phase(rho_, amplitude_, amp_mask_, support_)
+
+    # 2) cHIO update rule
+    #    A common version is:
+    #      inside support:  rho_{n+1} = rho_n + beta * (rho'_n - rho_n)
+    #      outside support: rho_{n+1} = rho_n - beta * rho'_n
+    #
+    #    Another variant:
+    #      inside support:  rho_{n+1} = rho'_n + beta * (rho'_n - rho_n)
+    #      outside support: rho_{n+1} = rho_n - beta * (rho'_n - rho_n)
+    #
+    #    Below is a typical cHIO-like approach:
+
+    inside_mask = support_star_
+    outside_mask = ~support_star_
+
+    # Inside support:
+    rho_[inside_mask] = (
+        rho_[inside_mask] 
+        + beta * (rho_mod_[inside_mask] - rho_[inside_mask])
+    )
+
+    # Outside support:
+    rho_[outside_mask] = (
+        rho_[outside_mask] 
+        - beta * rho_mod_[outside_mask]
+    )
+
+    # 3) Enforce a maximum density if desired:
+    #    (or you could replicate the “soft” correction used in step_HIO)
+    i_overmax = rho_ > rho_max
+    rho_[i_overmax] = rho_max
+
+    return rho_
+
+
+def step_SF(beta, rho_, amplitude_, amp_mask_, support_, rho_max):
+    """
+    Solvent Flipping (SF).
+
+    :param beta:        feedback constant
+    :param rho_:        electron density estimate (in/out)
+    :param amplitude_:  desired Fourier amplitudes
+    :param amp_mask_:   mask indicating which Fourier pixels to enforce
+    :param support_:    binary mask for object's support
+    :param rho_max:     maximum permitted electron density value
+    """
+    # 1) Enforce Fourier amplitudes
+    rho_mod_, support_star_ = step_phase(rho_, amplitude_, amp_mask_, support_)
+
+    # 2) SF update rule
+    #    Typical approach: 
+    #    - inside support: keep the new density  (rho' = rho_mod_)
+    #    - outside support: "flip" to a reference (often 0 or negative).
+    #
+    #    For example, if we want to push outside to 0:
+    #        rho_{n+1}(r) = rho_n(r) - beta * [rho'_n(r) - 0]
+    #                    = rho_n(r) - beta * rho'_n(r)
+    #
+    #    If you literally want “flip sign”:
+    #        rho_{n+1}(r) = - rho'_n(r)
+    #    Possibly with some weighting, or a clamp.  We'll use the "push to 0" approach.
+
+    inside_mask = support_star_
+    outside_mask = ~support_star_
+
+    # Inside support: adopt the new density
+    rho_[inside_mask] = rho_mod_[inside_mask]
+
+    # Outside support: "flatten" towards 0 by subtracting a fraction of rho_mod_ 
+    rho_[outside_mask] = (
+        rho_[outside_mask] 
+        - beta * rho_mod_[outside_mask]
+    )
+
+    # 3) Enforce a maximum density if desired
+    i_overmax = rho_ > rho_max
+    rho_[i_overmax] = rho_max
+
+    return rho_
+
 
 # import sys
 from ..so3_decomposition import so3_point_group_operations
@@ -214,13 +339,34 @@ from pytorch3d.transforms import matrix_to_quaternion
 
 class PhaseRetriever:
     
-    def __init__(self, n_phase_loops: int=10, symm_group: str='I', nER: int=50, nHIO: int=25, nDM: int=25, beta_HIO: float=0.9, beta_DM: float=1.0, support=None, shrink_wrap_method: str=None, cutoff: float=0.05) -> None:
+    def __init__(self, 
+                 n_phase_loops: int=10, 
+                 symm_group: str='I', 
+                 nER: int=50, 
+                 nHIO: int=25, 
+                 nDM: int=25, 
+                 ncHIO: int=25,
+                 nSF: int=25,
+                 beta_cHIO: float=0.8,
+                 beta_SF: float=0.8,    
+                 beta_HIO: float=0.9, 
+                 beta_DM: float=1.0, 
+                 support=None, 
+                 shrink_wrap_method: str=None, 
+                 cutoff: float=0.05) -> None:
+        
         self.n_phase_loops = n_phase_loops
+
         self.nER = nER
         self.nHIO = nHIO
         self.nDM = nDM
+        self.ncHIO = ncHIO
+        self.nSF = nSF
+
         self.beta_HIO = beta_HIO
         self.beta_DM = beta_DM
+        self.beta_cHIO = beta_cHIO
+        self.beta_SF = beta_SF
         self.support = support 
         self.shrink_wrap_method = shrink_wrap_method
         self.shrink_wrap_cutoff = cutoff
@@ -238,13 +384,32 @@ class PhaseRetriever:
         return rho_symm_
     
     def ER_loop(self, n_loops, rho_, amplitude_, amp_mask_, support_, rho_max):
-        for i in range(n_loops):
+        for k in range(n_loops):
             rho_ = step_ER(rho_, amplitude_, amp_mask_, support_, rho_max)
+            # if k % 10 == 0:
+            #     support_ = shrink_wrap(.01, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=self.shrink_wrap_cutoff)
+            #     rho_, support_ = recenter(rho_, support_, amplitude_.size(-1))
         return rho_
         
     def HIO_loop(self, n_loops, beta, rho_, amplitude_, amp_mask_, support_, rho_max):
         for k in range(n_loops):
             rho_ = step_HIO(beta, rho_, amplitude_, amp_mask_, support_, rho_max)
+        return rho_
+    
+    def cHIO_loop(self, n_loops, beta, rho_, amplitude_, amp_mask_, support_, rho_max):
+        for k in range(n_loops):
+            rho_ = step_cHIO(beta, rho_, amplitude_, amp_mask_, support_, rho_max)
+            # if k % 10 == 0:
+            #     support_ = shrink_wrap(.01, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=self.shrink_wrap_cutoff)
+            #     rho_, support_ = recenter(rho_, support_, amplitude_.size(-1))
+        return rho_
+    
+    def SF_loop(self, n_loops, beta, rho_, amplitude_, amp_mask_, support_, rho_max):
+        for k in range(n_loops):
+            rho_ = step_SF(beta, rho_, amplitude_, amp_mask_, support_, rho_max)
+            if k % 10 == 0:
+                support_ = shrink_wrap(.01, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=self.shrink_wrap_cutoff)
+                rho_, support_ = recenter(rho_, support_, amplitude_.size(-1))
         return rho_
     
     def DM_loop(self, n_loops, beta, rho_, amplitude_, amp_mask_, support_, rho_max):
@@ -272,37 +437,64 @@ class PhaseRetriever:
         else:
             rho_ = torch.fft.ifftshift(rho).detach().to(device)
         
+        pbar = tqdm(range(self.n_phase_loops), desc="Phase Retrieval")
+        num_symm_steps = self.n_phase_loops // 4
         with torch.no_grad():
-            for i in tqdm(range(self.n_phase_loops), desc="Phase Retrieval"):
-                rho_ = self.symmetrize_(rho_)
-                
-                rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
-                rho_ = rho_.clip_(0.)
-                
-                rho_ = self.HIO_loop(self.nHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
-                rho_ = rho_.clip_(0.)
-                
-                rho_ = self.DM_loop(self.nDM, self.beta_DM, rho_, amplitude_, amp_mask_, support_, rho_max)
-                rho_ = rho_.clip_(0.)
-                
-                rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
-                rho_ = rho_.clip_(0.)
-                support_ = shrink_wrap(.01, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=self.shrink_wrap_cutoff)
-                rho_, support_ = recenter(rho_, support_, M)
-                
-            
-            rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
-            rho_ = rho_.clip_(0.)
-            
-            rho_ = self.HIO_loop(self.nHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
-            rho_ = rho_.clip_(0.)
+            for i in pbar:
 
-            rho_ = self.DM_loop(self.nDM, self.beta_DM, rho_, amplitude_, amp_mask_, support_, rho_max)
-            rho_ = rho_.clip_(0.)
+                rho_ = rho_ * torch.fft.ifftshift(self.support).to(device) if self.support is not None else rho_
+
+                # if i < num_symm_steps:
+                #     alpha = i / num_symm_steps
+                #     rho_symm_ = self.symmetrize_(rho_)
+                #     rho_ = alpha * rho_ + (1 - alpha) * rho_symm_
+                #     pbar.set_description(f"Symmetrizing alpha={alpha:.2f}")
+                # else:
+                #     pbar.set_description("No Symmetrizing")
+                # rho_ = self.symmetrize_(rho_)
+
+                rho_ = self.cHIO_loop(self.ncHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
+                rho_ = rho_.clip_(0.)
+
+                rho_ = self.SF_loop(self.nSF, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
+                rho_ = rho_.clip_(0.)
+                
+                rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
+                rho_ = rho_.clip_(0.)
+                
+                # rho_ = self.HIO_loop(self.nHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
+                # rho_ = rho_.clip_(0.)
+                
+                # rho_ = self.DM_loop(self.nDM, self.beta_DM, rho_, amplitude_, amp_mask_, support_, rho_max)
+                # rho_ = rho_.clip_(0.)
+                
+                # rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
+                # rho_ = rho_.clip_(0.)
+
+                if i % 10 == 0:
+                    support_ = shrink_wrap(.01, rho_, support_, method=self.shrink_wrap_method, weight=1.0, cutoff=self.shrink_wrap_cutoff)
+                    
+                    support_ = torch.from_numpy(gaussian_filter(xp.array(support_.float().cpu().numpy()), 1).get()).to(device)
+                    support_ = support_ > 0.5
+
+                    rho_, support_ = recenter(rho_, support_, M)
+                
+            
+            # rho_ = self.ER_loop(self.nER, rho_, amplitude_, amp_mask_, support_, rho_max)
+            # rho_ = rho_.clip_(0.)
+            
+            # rho_ = self.HIO_loop(self.nHIO, self.beta_HIO, rho_, amplitude_, amp_mask_, support_, rho_max)
+            # rho_ = rho_.clip_(0.)
+
+            # rho_ = self.DM_loop(self.nDM, self.beta_DM, rho_, amplitude_, amp_mask_, support_, rho_max)
+            # rho_ = rho_.clip_(0.)
             
             
-        rho_ = self.symmetrize_(rho_)
+        # rho_ = self.symmetrize_(rho_)
         rho_, support_ = recenter(torch.nan_to_num(rho_), support_, M)
+
+        rho_ = rho_ * torch.fft.ifftshift(self.support).to(device) if self.support is not None else rho_
+
         rho_phased = torch.fft.fftshift(rho_)
         support_phased = torch.fft.fftshift(support_)
         

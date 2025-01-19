@@ -227,7 +227,9 @@ def align_volumes(
         sigma=0,
         n_iterations=10,
         n_search=420,
-        nscs=1,):
+        nscs=1,
+        alignment_transform=None,
+        ):
     """
     Find the quaternion that best aligns volume mrc1 to mrc2. Volumes are
     optionally preprocessed by up / downsampling and applying a Gaussian
@@ -283,11 +285,17 @@ def align_volumes(
         mrc1 = ndimage.gaussian_filter(mrc1, sigma=sigma)
         mrc2 = ndimage.gaussian_filter(mrc2, sigma=sigma)
 
+    if alignment_transform is None:
+        mrc1_align = mrc1
+        mrc2_align = mrc2
+    else:
+        mrc1_align = alignment_transform(mrc1)
+        mrc2_align = alignment_transform(mrc2)
     # evaluate both hands
     opt_q1, cc1 = scan_orientations(
-        mrc1, mrc2, n_iterations, n_search, nscs=nscs)
+        mrc1_align, mrc2_align, n_iterations, n_search, nscs=nscs)
     opt_q2, cc2 = scan_orientations(
-        flip(mrc1, [0, 1, 2]), mrc2, n_iterations, n_search, nscs=nscs)
+        flip(mrc1_align, [0, 1, 2]), mrc2_align, n_iterations, n_search, nscs=nscs)
     if cc1 > cc2:
         opt_q, cc_r, invert = opt_q1, cc1, False
     else:

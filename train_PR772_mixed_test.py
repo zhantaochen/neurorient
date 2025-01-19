@@ -259,29 +259,52 @@ else:
     config_orientation_diversity_loss = None
 logger.log(f"config_orientation_diversity_loss: \n", config_orientation_diversity_loss)
 
-model = NeurOrientLightning(
-    spi_data['pixel_position_reciprocal'],
-    over_sampling=over_sampling, 
-    photons_per_pulse=photons_per_pulse,
-    use_bifpn=merged_config.MODEL.USE_BIFPN,
-    use_fluctuation_predictor=use_fluctuation_predictor,
-    config_slice2rotmat=config_slice2rotmat,
-    config_intensitynet=config_intensitynet,
-    config_optimization=config_optimization
-)
+# model = NeurOrientLightning(
+#     spi_data['pixel_position_reciprocal'],
+#     over_sampling=over_sampling, 
+#     photons_per_pulse=photons_per_pulse,
+#     use_bifpn=merged_config.MODEL.USE_BIFPN,
+#     use_fluctuation_predictor=use_fluctuation_predictor,
+#     config_slice2rotmat=config_slice2rotmat,
+#     config_intensitynet=config_intensitynet,
+#     config_optimization=config_optimization
+# )
 
-logger.log( 
-    'arguments being used in building the model:\n',
-    f'over_sampling={over_sampling}\n',
-    f'photons_per_pulse={photons_per_pulse:.2e}\n',
-    'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
-    'config_optimization: ', '\n', pprint.pformat(config_optimization))
+# logger.log( 
+#     'arguments being used in building the model:\n',
+#     f'over_sampling={over_sampling}\n',
+#     f'photons_per_pulse={photons_per_pulse:.2e}\n',
+#     'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
+#     'config_optimization: ', '\n', pprint.pformat(config_optimization))
 
-if args.checkpoint is not None:
-    model.load_state_dict(
-        torch.load(args.checkpoint)['state_dict']
-    )
-    logger.log(f"Resume training from state_dict of: {args.checkpoint}.")
+# if args.checkpoint is not None:
+#     model.load_state_dict(
+#         torch.load(args.checkpoint)['state_dict']
+#     )
+#     logger.log(f"Resume training from state_dict of: {args.checkpoint}.")
+
+# first load the model with good volume prediction
+# model.load_state_dict(
+#     torch.load('/pscratch/sd/z/zhantao/neurorient_repo/experiments/PR772_DS_128x128_Newton_production/codebook_version_34529900_dataset1/checkpoints/PR772-epoch=596-step=20870.ckpt')['state_dict'],
+#     strict=False
+# )
+# resume this training
+checkpoint = '/pscratch/sd/z/zhantao/neurorient_repo/experiments/PR772_downsampled_128x128/lightning_logs/version_34638685/checkpoints/last.ckpt'
+model = NeurOrientLightning.load_from_checkpoint(checkpoint)
+
+# """quick and dirty way to load a checkpoint
+# """
+# ckpt_state_dict = torch.load('/pscratch/sd/z/zhantao/neurorient_repo/experiments/PR772_downsampled_128x128/lightning_logs/version_34613249/checkpoints/PR772-epoch=48-step=1690.ckpt')['state_dict']
+# model_state_dict = model.state_dict()
+# filtered_dict = {
+#     k: v for k, v in ckpt_state_dict.items()
+#     if k in model_state_dict and "model.orientation_predictor" not in k
+# }
+# model_state_dict.update(filtered_dict)
+# model.load_state_dict(model_state_dict)
+# print('loaded model state_dict from last.ckpt')
+# """TODO: REMOVE THIS LATER
+# """
 
 logger.log(
     "model created with the following architecture:\n",
@@ -296,11 +319,13 @@ checkpoint_callback = ModelCheckpoint(
 
 torch.set_float32_matmul_precision('high')
 
+from lightning.pytorch.plugins.environments import LightningEnvironment
 ddp = DDPStrategy(process_group_backend="nccl", find_unused_parameters=True)
 trainer = L.Trainer(
     max_epochs=max_epochs, accelerator='gpu', strategy=ddp,
+    plugins=[LightningEnvironment()],
     callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=5)],
-    log_every_n_steps=1, devices=1, sync_batchnorm=True, num_nodes=1,
+    log_every_n_steps=1, devices=num_gpus, sync_batchnorm=True,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 
 # dump configuration to file for later reference
@@ -312,4 +337,5 @@ dump_log_fname = Path(os.path.join(trainer.logger.log_dir, 'log.txt'))
 dump_log_fname.parent.mkdir(parents=True, exist_ok=True)
 logger.dump_to_file(dump_log_fname)
 
-trainer.fit(model, dataloader_train, dataloader_validate)
+trainer.fit(model, dataloader_train, dataloader_validate, ckpt_path=checkpoint)
+# trainer.fit(model, dataloader_train, dataloader_validate, )

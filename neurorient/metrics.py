@@ -59,6 +59,7 @@ def compute_fsc(
         q_spacing=0.01,
         align_zoom=0.5,
         align_n_search=420,
+        alignment_transform=None, # None or callable
         return_all_volumes=False,):
     """
     Taken from https://gitlab.osti.gov/mtip/spinifel/-/blob/master/eval/fsc.py?ref_type=heads
@@ -103,7 +104,7 @@ def compute_fsc(
 
     # align volumes
     volume1, volume2, aligned_cc, opt_q = align_volumes(
-        volume1, volume2, zoom=align_zoom, n_search=align_n_search)
+        volume1, volume2, zoom=align_zoom, n_search=align_n_search, alignment_transform=alignment_transform)
     volume1 = convert_to_cupy(volume1)
 
     if volume_type == 'electron_density':
@@ -118,7 +119,7 @@ def compute_fsc(
     q_spacing = min(1.05e-10*(mesh[1,0,0,0] - mesh[0,0,0,0]).get(), q_spacing)
 
     smags = cp.linalg.norm(cp.array(mesh), axis=-1).reshape(-1) * 1e-10
-    q_bounds = cp.arange(0, smags.max() / cp.sqrt(3), q_spacing)
+    q_bounds = cp.arange(0, smags.max(), q_spacing)
     q_centers = (q_bounds[:-1] + q_bounds[1:]) / 2
 
     fsc = cp.zeros(len(q_bounds)-1)

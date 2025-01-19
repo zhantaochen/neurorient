@@ -57,6 +57,8 @@ def get_volume_radial_profile(volumes, pixel_positions=None, reduce_mean=True, d
     pixel_positions: torch.Tensor, shape (H, W, D, 3)
     
     """
+    if volumes.ndim == 3:
+        volumes = volumes.unsqueeze(0)
     
     if pixel_positions is None:
         # If center is not provided, assume center of the image

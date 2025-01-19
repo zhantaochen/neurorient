@@ -300,7 +300,7 @@ ddp = DDPStrategy(process_group_backend="nccl", find_unused_parameters=True)
 trainer = L.Trainer(
     max_epochs=max_epochs, accelerator='gpu', strategy=ddp,
     callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=5)],
-    log_every_n_steps=1, devices=1, sync_batchnorm=True, num_nodes=1,
+    log_every_n_steps=1, devices=num_gpus, sync_batchnorm = True,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 
 # dump configuration to file for later reference
@@ -313,3 +313,5 @@ dump_log_fname.parent.mkdir(parents=True, exist_ok=True)
 logger.dump_to_file(dump_log_fname)
 
 trainer.fit(model, dataloader_train, dataloader_validate)
+
+
