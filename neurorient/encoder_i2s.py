@@ -446,12 +446,62 @@ def random_rotations(n, seed=None):
     rotmats = quaternion_to_matrix(o)
     return rotmats
 
+from pytorch3d.transforms import so3_exp_map
+def generate_nearby_rotations_grid(
+    R_b: torch.Tensor,
+    alpha: float,
+    num_steps: int = 3
+) -> torch.Tensor:
+    """
+    Function written by GPT-o1
+    Generate a grid of rotation matrices around a base rotation R_b,
+    all within an angular distance <= alpha (radians).
+
+    Args:
+        R_b: (3, 3) base rotation matrix on the CPU or GPU.
+        alpha: float, the maximum angle (in radians) to deviate from R_b.
+        num_steps: how many steps in each dimension of the [-alpha, alpha] box.
+                   e.g., 3 => a small coarse grid; larger => finer sampling.
+
+    Returns:
+        R_grid: (M, 3, 3) a list of nearby rotation matrices, each within angle alpha.
+                M <= num_steps^3 (some are filtered out if norm(omega) > alpha).
+    """
+    device = R_b.device
+
+    # 1) Create a 1D coordinate vector from -alpha to +alpha
+    coords_1d = torch.linspace(-alpha, alpha, steps=num_steps, device=device)
+
+    # 2) Build a 3D meshgrid of shape (num_steps, num_steps, num_steps, 3)
+    #    Each point is (omega_x, omega_y, omega_z) in [-alpha, +alpha]^3
+    mx, my, mz = torch.meshgrid(coords_1d, coords_1d, coords_1d, indexing="ij")
+    # Stack into shape (num_steps^3, 3)
+    omega_grid = torch.stack([mx, my, mz], dim=-1).reshape(-1, 3)
+
+    # 3) Filter out vectors whose norm > alpha to ensure angle <= alpha
+    #    (You could also keep them to get a full cube, but typically we want a "ball" of radius alpha.)
+    norms = torch.norm(omega_grid, dim=1)
+    mask = norms <= alpha
+    omega_grid = omega_grid[mask]
+
+    # 4) Exponentiate each omega -> a rotation in SO(3)
+    #    so3_exp_map: (M, 3) -> (M, 3, 3)
+    R_local = so3_exp_map(omega_grid)  # Rotations "around" identity
+
+    # 5) Compose with base rotation R_b (post-multiplication: R_g = R_b * R_local)
+    #    shape: (M, 3, 3)
+    R_grid = R_b.unsqueeze(0) @ R_local
+
+    # R_grid = torch.cat([R_b.unsqueeze(0), R_grid], dim=0)
+
+    return R_grid
+
 class I2S(nn.Module):
   '''
   Instantiate I2S-style network for predicting distributions over SO(3) from
   single image
   '''
-  def __init__(self, lmax=6, s2_fdim=512, so3_fdim=16, rec_level=3, input_size=224):
+  def __init__(self, lmax=6, s2_fdim=512, so3_fdim=16, rec_level=3, input_size=224, alpha=None):
     super().__init__()
     self.encoder = ImageEncoder(input_size=input_size)
 
@@ -481,8 +531,11 @@ class I2S(nn.Module):
     # self.register_buffer(
     #     "output_rotmats", o3.angles_to_matrix(*output_xyx)
     # )
-    self.set_rotation_grids(rec_level=rec_level, lmax=lmax)
-  
+    if rec_level is not None:
+      self.set_rotation_grids(rec_level=rec_level, lmax=lmax)
+    elif rec_level is None and alpha is not None:
+      self.set_local_rotation_grid(alpha=alpha, num_steps=6, lmax=lmax)  
+
   def set_rotation_grids(self, rec_level=2, lmax=6):
     output_xyx = so3_healpix_grid(rec_level=rec_level)
     random_xyx = matrix_to_euler_angles(random_rotations(output_xyx.size(1)//4, seed=42), 'XYX').T.to(output_xyx)
@@ -494,6 +547,19 @@ class I2S(nn.Module):
         "output_rotmats", o3.angles_to_matrix(*output_xyx)
     )
     print(f"generated {output_xyx.size(1)} rotations")
+
+  def set_local_rotation_grid(self, alpha, num_steps, lmax=6):
+    output_rotmats = generate_nearby_rotations_grid(
+       R_b=torch.eye(3), alpha=alpha, num_steps=num_steps
+    )
+    output_xyx = matrix_to_euler_angles(output_rotmats, 'XYX').T
+    self.register_buffer(
+        "output_wigners", flat_wigner(lmax, *output_xyx).transpose(0,1)
+    )
+    self.register_buffer(
+        "output_rotmats", o3.angles_to_matrix(*output_xyx)
+    )
+    print(f"generated {output_xyx.size(1)} local rotations")
      
   
   def forward(self, x):

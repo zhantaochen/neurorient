@@ -96,20 +96,22 @@ class Slice2RotMat(nn.Module):
         
     #     return loss, z_q, perplexity
     
-    
+
+from .so3_decomposition import threshold_dict
+from .utils_avg_rotations import compute_weighted_average_so3
 class Slice2RotMat_CodeBook(nn.Module):
     def __init__(self, rec_level=3, image_dimension=128):
         super().__init__()
         
-        # euler_yxy = so3_healpix_grid(rec_level).T
-        # grid_rotations = euler_angles_to_matrix(euler_yxy, convention='YXY')
-        # self.register_buffer('ref_rotations', grid_rotations)
+        euler_yxy = so3_healpix_grid(rec_level).T
+        grid_rotations = euler_angles_to_matrix(euler_yxy, convention='YXY')
+        self.register_buffer('ref_rotations', grid_rotations)
         # rand_rotations = random_rotations(grid_rotations.shape[0] // 4)
         # self.register_buffer('ref_rotations', torch.cat([grid_rotations, rand_rotations], dim=0))
 
-        self.i2s = I2S(rec_level=rec_level, input_size=image_dimension)
+        self.i2s = I2S(rec_level=None, input_size=image_dimension, alpha=threshold_dict[str(rec_level)])
 
-        self.n_ref = self.i2s.output_rotmats.shape[0]
+        self.n_ref = self.ref_rotations.shape[0]
         
         self._max_val = 100.0
         self.max_val = 100.0
@@ -132,12 +134,11 @@ class Slice2RotMat_CodeBook(nn.Module):
         
     def get_ref_images(self, intens_func, pixel_position_reciprocal, image_dimension, over_sampling=1):
         with torch.no_grad():
-            # print(HKL.shape)
-            rotation_dset = TensorDataset(self.i2s.output_rotmats)
-            rotation_dloader = DataLoader(rotation_dset, batch_size=50, shuffle=False)
+            rotation_dset = TensorDataset(self.ref_rotations)
+            rotation_dloader = DataLoader(rotation_dset, batch_size=75, shuffle=False)
             _ref_images = []
             for batch in tqdm(rotation_dloader, miniters=int(len(rotation_dloader)/10)):
-                _rotations = batch[0].to(self.i2s.output_rotmats.device)
+                _rotations = batch[0].to(self.ref_rotations.device)
                 HKL = gen_nonuniform_normalized_positions(
                     _rotations, pixel_position_reciprocal, over_sampling).T
                 _intens = intens_func(HKL)
@@ -145,9 +146,6 @@ class Slice2RotMat_CodeBook(nn.Module):
             ref_images = torch.cat(_ref_images, dim=0)
         self.register_buffer('ref_images', ref_images)
         print(f'Reference images generated, sampling at max_val: {self.max_val}')
-        
-    # def normalize_to_range(self, x, min_val=0.0, max_val=2*np.pi):
-    #     return (x - x.min()) / (x.max() - x.min() + 1e-8) * (max_val - min_val) + min_val
 
     def normalize_to_range(self, x, min_val=0.0, max_val=2*np.pi):
         return (x - x.amin(dim=-1, keepdim=True)) / (x.amax(dim=-1, keepdim=True) - x.amin(dim=-1, keepdim=True) + 1e-8) * (max_val - min_val) + min_val
@@ -170,50 +168,45 @@ class Slice2RotMat_CodeBook(nn.Module):
         
         return 1 - numerator / (divisor + 1e-8)
         
-    def forward(self, image, use_probs='pcc_samp'):
+    def forward(self, image):
         if image.ndim == 4:
             image = image.squeeze(1)
 
         logits_pred = self.i2s.compute_logits(image.unsqueeze(1))
-        probs_pred = torch.softmax(logits_pred, dim=-1)
+        probs_ft = torch.nn.functional.softmax(logits_pred, dim=-1).float()
+        # loss_neg_entropy = (probs_ft * torch.log(probs_ft + 1e-8)).sum(dim=-1).mean()
+
+        rotations_ft = compute_weighted_average_so3(self.i2s.output_rotmats, probs_ft)
+        # probs_ft = torch.nn.functional.gumbel_softmax(logits_pred, tau=1.0, hard=True).float()
+        # rotations_ft = torch.einsum('bn, nij->bij', probs_ft, self.i2s.output_rotmats)
 
         dist = self.distance_func_PC(image)
-        # print(image.shape, self.ref_images.shape, dist.shape, self.n_ref)
-        
-        # min_encoding_indices = torch.argmin(dist, dim=1).unsqueeze(1)
-        # min_encodings = torch.zeros(
-        #     min_encoding_indices.shape[0], self.n_ref).to(dist.device)
-        # min_encodings.scatter_(1, min_encoding_indices, 1)
-        # rotations = torch.einsum('bn, nij->bij', min_encodings, self.i2s.output_rotmats)
-        
         if hasattr(self, 'max_val'):
             max_val = self.max_val
         else:
             max_val = 100.0
-        
         dist_norm = self.normalize_to_range(dist, min_val=0.0, max_val=max_val)
         probs_samp = torch.softmax(-dist_norm, dim=-1)
         
-        if use_probs == 'pcc_samp':
-            indices = torch.multinomial(probs_samp, 1).squeeze(1)
-        elif use_probs == 'pred_samp':
-            indices = torch.multinomial(probs_pred, 1).squeeze(1)
+        indices = torch.multinomial(probs_samp, 1).squeeze(1)
+        probs_oh = nn.functional.one_hot(indices, num_classes=self.n_ref).to(probs_samp)
 
-        probs_oh = nn.functional.one_hot(indices, num_classes=self.n_ref)
+        rotations_base = torch.einsum('bn, nij->bij', probs_oh, self.ref_rotations)
 
-        probs = probs_oh.detach() + probs_pred - probs_pred.detach()
-
-        rotations = torch.einsum('bn, nij->bij', probs, self.i2s.output_rotmats)
-
-        loss = nn.functional.cross_entropy(logits_pred, probs_samp)
+        # rotations = torch.einsum('bij, bjk -> bik', rotations_ft, rotations_base)
+        rotations = torch.einsum('bij, bjk -> bik', rotations_base, rotations_ft)
 
         output = {
-            'loss': loss,
             'rotations': rotations,
-            'probs_pred': probs_pred,
+            'rotations_ft': rotations_ft,
+            'rotations_base': rotations_base,
             'probs_samp': probs_samp,
-            'probs_max': probs_samp.amax(dim=-1).mean(),
-            'probs_min': probs_samp.amin(dim=-1).mean(),
+            'probs_pred': probs_ft,
+            'probs_samp_max': probs_samp.amax(dim=-1).mean(),
+            'probs_samp_min': probs_samp.amin(dim=-1).mean(),
+            'probs_pred_max': logits_pred.softmax(dim=-1).amax(dim=-1).mean(),
+            'probs_pred_min': logits_pred.softmax(dim=-1).amin(dim=-1).mean(),
+            # 'loss_neg_entropy': loss_neg_entropy,
         }
 
         return output
@@ -314,19 +307,17 @@ class NeurOrient(nn.Module):
             self.fluctuation_predictor = None
 
         # setup volume predictor
-        # self.volume_predictor = IntensityNet(
+        # self.volume_predictor = IntensityNet_GSInv(
         #     dim_in=3,
         #     dim_hidden=config_intensitynet['dim_hidden'],
         #     dim_out=1,
         #     num_layers=config_intensitynet['num_layers'],
-        #     # final_activation=torch.nn.ReLU(),
         # )
         self.volume_predictor = IntensityNet_Mixed(
             dim_in=3,
             dim_hidden=config_intensitynet['dim_hidden'],
             dim_out=1,
             num_layers=config_intensitynet['num_layers'],
-            # final_activation=torch.nn.ReLU(),
         )
 
         self.photons_per_pulse = photons_per_pulse
@@ -424,10 +415,10 @@ class NeurOrientLightning(L.LightningModule):
         else:
             self.loss_func = torch.nn.PoissonNLLLoss(log_input=False, full=True)
             self.log_transform = False
-            self.model.volume_predictor = torch.nn.Sequential(
-                self.model.volume_predictor,
-                torch.nn.Softplus()
-            )
+            # self.model.volume_predictor = torch.nn.Sequential(
+            #     self.model.volume_predictor,
+            #     torch.nn.Softplus()
+            # )
 
     def prepare_input_slices(self, batch):
         
@@ -453,7 +444,7 @@ class NeurOrientLightning(L.LightningModule):
         slices_pred = self.model.predict_slice(HKL).view((-1, 1,) + (self.model.image_dimension,)*2)
         return slices_pred
 
-    def estimate_batch(self, batch, use_probs='samp'):
+    def estimate_batch(self, batch):
         
         if isinstance(batch, dict):
             slices_true = batch['image'].to(self.dtype)
@@ -468,7 +459,7 @@ class NeurOrientLightning(L.LightningModule):
         slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + 1e-8)
 
         # predict orientations from images
-        orientations_out = self.model.orientation_predictor(slices_input, use_probs=use_probs)
+        orientations_out = self.model.orientation_predictor(slices_input)
         orientations = orientations_out['rotations']
 
         # get reciprocal positions based on orientations
@@ -526,20 +517,17 @@ class NeurOrientLightning(L.LightningModule):
         # Apply input and general masks and loss scale factor to get input slices.
         slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + 1e-8)
 
-        # if self.current_epoch >= 130:
-        #     orientations_out = self.model.orientation_predictor(slices_input, use_probs='pred_samp')
-        # else:
-        #     orientations_out = self.model.orientation_predictor(slices_input, use_probs='pcc_samp')
-
-        orientations_out = self.model.orientation_predictor(slices_input, use_probs='pcc_samp')
+        orientations_out = self.model.orientation_predictor(slices_input)
 
         orientations = orientations_out['rotations']
-        loss_logits = orientations_out['loss']
-        self.log(f"{task_type}/loss_logits", loss_logits.item(), sync_dist=True)
 
+        loss_additional = 0.0
         for k, v in orientations_out.items():
-            if k not in ['loss', 'rotations'] and k in ['probs_max', 'probs_min']:
+            if 'min' in k or 'max' in k:
                 self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+            elif 'loss' in k:
+                self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+                loss_additional += v
 
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
@@ -567,7 +555,7 @@ class NeurOrientLightning(L.LightningModule):
 
         loss_reco = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
         
-        loss = loss_reco + loss_logits
+        loss = loss_reco + loss_additional
         self.log(f"{task_type}/loss_reco", loss_reco.item(), sync_dist=True)
         self.log(f"{task_type}/loss", loss.item(), prog_bar=True, sync_dist=True)
 
@@ -616,20 +604,17 @@ class NeurOrientLightning(L.LightningModule):
         # Apply input and general masks and loss scale factor to get input slices.
         slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + 1e-8)
 
-        # if self.current_epoch >= 130:
-        #     orientations_out = self.model.orientation_predictor(slices_input, use_probs='pred_samp')
-        # else:
-        #     orientations_out = self.model.orientation_predictor(slices_input, use_probs='pcc_samp')
-
-        orientations_out = self.model.orientation_predictor(slices_input, use_probs='pcc_samp')
+        orientations_out = self.model.orientation_predictor(slices_input)
 
         orientations = orientations_out['rotations']
-        loss_logits = orientations_out['loss']
-        self.log(f"{task_type}/loss_logits", loss_logits.item(), sync_dist=True)
 
+        loss_additional = 0.0
         for k, v in orientations_out.items():
-            if k not in ['loss', 'rotations'] and k in ['probs_max', 'probs_min']:
+            if 'min' in k or 'max' in k:
                 self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+            elif 'loss' in k:
+                self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+                loss_additional += v
 
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
@@ -657,7 +642,7 @@ class NeurOrientLightning(L.LightningModule):
 
         loss_reco = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
         
-        loss = loss_reco + loss_logits
+        loss = loss_reco + loss_additional
         self.log(f"{task_type}/loss_reco", loss_reco.item(), sync_dist=True)
         self.log(f"{task_type}/loss", loss.item(), prog_bar=True, sync_dist=True)
 

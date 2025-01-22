@@ -259,30 +259,44 @@ else:
     config_orientation_diversity_loss = None
 logger.log(f"config_orientation_diversity_loss: \n", config_orientation_diversity_loss)
 
-model = NeurOrientLightning(
-    spi_data['pixel_position_reciprocal'],
-    over_sampling=over_sampling, 
-    photons_per_pulse=photons_per_pulse,
-    use_bifpn=merged_config.MODEL.USE_BIFPN,
-    use_fluctuation_predictor=use_fluctuation_predictor,
-    config_slice2rotmat=config_slice2rotmat,
-    config_intensitynet=config_intensitynet,
-    config_optimization=config_optimization
-)
-
-logger.log( 
-    'arguments being used in building the model:\n',
-    f'over_sampling={over_sampling}\n',
-    f'photons_per_pulse={photons_per_pulse:.2e}\n',
-    'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
-    'config_optimization: ', '\n', pprint.pformat(config_optimization))
-
 if args.checkpoint is not None:
-    ckpt_state_dict = torch.load(args.checkpoint, map_location='cpu')['state_dict']
-    model.load_state_dict(
-        ckpt_state_dict, strict=False
+    model = NeurOrientLightning.load_from_checkpoint(
+        args.checkpoint, strict=False
     )
+    model.configure_optimization = config_optimization
     logger.log(f"Resume training from state_dict of: {args.checkpoint}.")
+else:
+    model = NeurOrientLightning(
+        spi_data['pixel_position_reciprocal'],
+        over_sampling=over_sampling, 
+        photons_per_pulse=photons_per_pulse,
+        use_bifpn=merged_config.MODEL.USE_BIFPN,
+        use_fluctuation_predictor=use_fluctuation_predictor,
+        config_slice2rotmat=config_slice2rotmat,
+        config_intensitynet=config_intensitynet,
+        config_optimization=config_optimization
+    )
+
+    logger.log( 
+        'arguments being used in building the model:\n',
+        f'over_sampling={over_sampling}\n',
+        f'photons_per_pulse={photons_per_pulse:.2e}\n',
+        'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
+        'config_optimization: ', '\n', pprint.pformat(config_optimization))
+
+# if args.checkpoint is not None:
+#     ckpt_state_dict = torch.load(args.checkpoint, map_location='cpu')['state_dict']
+#     ckpt_state_dict_updated = {}
+#     for k, v in ckpt_state_dict.items():
+#         if 'symm_ops' in k or \
+#             'training_reciprocal_grid' in k or \
+#             'training_symm_reciprocal_grid' in k:
+#             continue
+#         ckpt_state_dict_updated[k] = v
+#     model.load_state_dict(
+#         ckpt_state_dict_updated, strict=False
+#     )
+#     logger.log(f"Resume training from state_dict of: {args.checkpoint}.")
 
 logger.log(
     "model created with the following architecture:\n",

@@ -20,8 +20,7 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.strategies import DDPStrategy
 
-# from neurorient.model_codebook_hard  import NeurOrientLightning
-from neurorient.model_group_inv_nn  import NeurOrientLightning
+from neurorient.model_codebook_i2s_ft  import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform, DictionaryDataset
 from neurorient.logger          import Logger 
 from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask, BeamStopMask_from_file
@@ -223,7 +222,7 @@ dataloader_validate = torch.utils.data.DataLoader( dataset_validate,
                                                    sampler     = sampler_validate,
                                                    shuffle     = False,
                                                    pin_memory  = False,
-                                                   batch_size  = size_batch,
+                                                   batch_size  = size_batch // num_gpus,
                                                    num_workers = num_workers, 
                                                    persistent_workers = True, drop_last=True)
 
@@ -260,34 +259,55 @@ else:
     config_orientation_diversity_loss = None
 logger.log(f"config_orientation_diversity_loss: \n", config_orientation_diversity_loss)
 
-model = NeurOrientLightning(
-    spi_data['pixel_position_reciprocal'],
-    over_sampling=over_sampling, 
-    photons_per_pulse=photons_per_pulse,
-    use_bifpn=merged_config.MODEL.USE_BIFPN,
-    use_fluctuation_predictor=use_fluctuation_predictor,
-    config_slice2rotmat=config_slice2rotmat,
-    config_intensitynet=config_intensitynet,
-    config_optimization=config_optimization
-)
 
-logger.log( 
-    'arguments being used in building the model:\n',
-    f'over_sampling={over_sampling}\n',
-    f'photons_per_pulse={photons_per_pulse:.2e}\n',
-    'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
-    'config_optimization: ', '\n', pprint.pformat(config_optimization))
+# from neurorient.utils_model import get_radial_profile, get_volume_radial_profile
+# q_img, I_img = get_radial_profile(
+#     images=dataset_train.tensors['image'],
+#     pixel_positions=spi_data['pixel_position_reciprocal'],
+#     decimals=1
+# )
+# config_intensitynet['PSD_data'] = {
+#     'q': q_img, 'logI': torch.log(I_img.clamp(1e-16, None))
+# }
 
 if args.checkpoint is not None:
-    ckpt_state_dict = torch.load(args.checkpoint, map_location='cpu')['state_dict']
-    # ckpt_state_dict['model.model.orientation_predictor.base_ref_rotations'] = model.model.orientation_predictor.base_ref_rotations
-    model.load_state_dict(
-        ckpt_state_dict, strict=False
+    model = NeurOrientLightning.load_from_checkpoint(
+        args.checkpoint, strict=False
     )
+    model.configure_optimization = config_optimization
     logger.log(f"Resume training from state_dict of: {args.checkpoint}.")
+else:
+    model = NeurOrientLightning(
+        spi_data['pixel_position_reciprocal'],
+        over_sampling=over_sampling, 
+        photons_per_pulse=photons_per_pulse,
+        use_bifpn=merged_config.MODEL.USE_BIFPN,
+        use_fluctuation_predictor=use_fluctuation_predictor,
+        config_slice2rotmat=config_slice2rotmat,
+        config_intensitynet=config_intensitynet,
+        config_optimization=config_optimization
+    )
 
-# checkpoint = '/pscratch/sd/z/zhantao/neurorient_repo/experiments/PR772_iUCrJ_7K/lightning_logs/version_34648396/checkpoints/last.ckpt'
-# model = NeurOrientLightning.load_from_checkpoint(checkpoint)
+    logger.log( 
+        'arguments being used in building the model:\n',
+        f'over_sampling={over_sampling}\n',
+        f'photons_per_pulse={photons_per_pulse:.2e}\n',
+        'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
+        'config_optimization: ', '\n', pprint.pformat(config_optimization))
+
+# if args.checkpoint is not None:
+#     ckpt_state_dict = torch.load(args.checkpoint, map_location='cpu')['state_dict']
+#     ckpt_state_dict_updated = {}
+#     for k, v in ckpt_state_dict.items():
+#         if 'symm_ops' in k or \
+#             'training_reciprocal_grid' in k or \
+#             'training_symm_reciprocal_grid' in k:
+#             continue
+#         ckpt_state_dict_updated[k] = v
+#     model.load_state_dict(
+#         ckpt_state_dict_updated, strict=False
+#     )
+#     logger.log(f"Resume training from state_dict of: {args.checkpoint}.")
 
 logger.log(
     "model created with the following architecture:\n",
@@ -303,11 +323,11 @@ checkpoint_callback = ModelCheckpoint(
 torch.set_float32_matmul_precision('high')
 
 from lightning.pytorch.plugins.environments import LightningEnvironment
-ddp = DDPStrategy(process_group_backend="nccl", find_unused_parameters=True)
+ddp = DDPStrategy(process_group_backend="nccl", find_unused_parameters=False)
 trainer = L.Trainer(
     max_epochs=max_epochs, accelerator='gpu', strategy=ddp,
     plugins=[LightningEnvironment()],
-    callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=5)],
+    callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=1)],
     log_every_n_steps=1, devices=num_gpus, sync_batchnorm=True,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 

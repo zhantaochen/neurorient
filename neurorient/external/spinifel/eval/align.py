@@ -175,9 +175,9 @@ def scan_orientations_fine(
 def scan_orientations(
         mrc1,
         mrc2,
-        n_iterations=10,
+        n_iterations=20,
         n_search=420,
-        nscs=1):
+        nscs=10):
     """
     Find the quaternion and its associated score that best aligns volume mrc1 to mrc2.
     Candidate orientations are scored based on the Pearson correlation coefficient.
@@ -289,6 +289,7 @@ def align_volumes(
         mrc1_align = mrc1
         mrc2_align = mrc2
     else:
+        print("Applying alignment transform")
         mrc1_align = alignment_transform(mrc1)
         mrc2_align = alignment_transform(mrc2)
     # evaluate both hands

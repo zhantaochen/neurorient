@@ -106,3 +106,27 @@ def fit_radial_profile(images, pixel_positions=None):
     mu, covar = scipy.optimize.curve_fit(fit_func, q.detach().cpu().numpy(), radial_profile.detach().cpu().numpy())
     
     return mu
+
+def clean_ckpt(ckpt_path_unclean):
+
+    ckpt_uncl = torch.load(ckpt_path_unclean, map_location='cpu')
+
+    try:
+        del ckpt_uncl['state_dict']['training_symm_reciprocal_grid']
+    except:
+        pass
+
+    try:
+        del ckpt_uncl['state_dict']['symm_ops']
+    except:
+        pass
+    
+    try:
+        del ckpt_uncl['state_dict']['training_reciprocal_grid']
+    except:
+        pass
+
+    ckpt_path_cleaned = ckpt_path_unclean.replace('.ckpt', '_cleaned.ckpt')
+    print(ckpt_path_cleaned)
+
+    torch.save(ckpt_uncl, ckpt_path_cleaned)
