@@ -501,7 +501,7 @@ class I2S(nn.Module):
   Instantiate I2S-style network for predicting distributions over SO(3) from
   single image
   '''
-  def __init__(self, lmax=6, s2_fdim=512, so3_fdim=16, rec_level=3, input_size=224, alpha=None):
+  def __init__(self, lmax=6, s2_fdim=512, so3_fdim=16, rec_level=3, input_size=224, alpha=None, num_steps=6):
     super().__init__()
     self.encoder = ImageEncoder(input_size=input_size)
 
@@ -534,7 +534,7 @@ class I2S(nn.Module):
     if rec_level is not None:
       self.set_rotation_grids(rec_level=rec_level, lmax=lmax)
     elif rec_level is None and alpha is not None:
-      self.set_local_rotation_grid(alpha=alpha, num_steps=6, lmax=lmax)  
+      self.set_local_rotation_grid(alpha=alpha, num_steps=num_steps, lmax=lmax)  
 
   def set_rotation_grids(self, rec_level=2, lmax=6):
     output_xyx = so3_healpix_grid(rec_level=rec_level)

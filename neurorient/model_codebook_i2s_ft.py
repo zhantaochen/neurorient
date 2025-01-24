@@ -31,6 +31,9 @@ from .external.quantizer import VectorQuantizer
 
 from .encoder_i2s import I2S
 
+INTENSITY_MIN = 1e-8
+DIVISOR_EPS = 1e-8
+
 class KbNufftRealView(KbNufft):
     def __init__(self, im_size, grid_size = None):
         super(KbNufftRealView, self).__init__(im_size, grid_size)
@@ -100,7 +103,7 @@ class Slice2RotMat(nn.Module):
 from .so3_decomposition import threshold_dict
 from .utils_avg_rotations import compute_weighted_average_so3
 class Slice2RotMat_CodeBook(nn.Module):
-    def __init__(self, rec_level=3, image_dimension=128):
+    def __init__(self, rec_level=3, image_dimension=128, num_steps=6):
         super().__init__()
         
         euler_yxy = so3_healpix_grid(rec_level).T
@@ -109,7 +112,9 @@ class Slice2RotMat_CodeBook(nn.Module):
         # rand_rotations = random_rotations(grid_rotations.shape[0] // 4)
         # self.register_buffer('ref_rotations', torch.cat([grid_rotations, rand_rotations], dim=0))
 
-        self.i2s = I2S(rec_level=None, input_size=image_dimension, alpha=threshold_dict[str(rec_level)])
+        self.i2s = I2S(rec_level=None, input_size=image_dimension, 
+                       alpha=threshold_dict[str(rec_level)],
+                       num_steps=num_steps)
 
         self.n_ref = self.ref_rotations.shape[0]
         
@@ -148,7 +153,7 @@ class Slice2RotMat_CodeBook(nn.Module):
         print(f'Reference images generated, sampling at max_val: {self.max_val}')
 
     def normalize_to_range(self, x, min_val=0.0, max_val=2*np.pi):
-        return (x - x.amin(dim=-1, keepdim=True)) / (x.amax(dim=-1, keepdim=True) - x.amin(dim=-1, keepdim=True) + 1e-8) * (max_val - min_val) + min_val
+        return (x - x.amin(dim=-1, keepdim=True)) / (x.amax(dim=-1, keepdim=True) - x.amin(dim=-1, keepdim=True) + DIVISOR_EPS) * (max_val - min_val) + min_val
         
     def distance_func_L2(self, image):
         if image.ndim == 4:
@@ -166,7 +171,7 @@ class Slice2RotMat_CodeBook(nn.Module):
         numerator = torch.einsum('bi, ni -> bn', image_flat, ref_flat)
         divisor = torch.einsum('b, n -> bn', image_flat.norm(dim=-1).pow(2), ref_flat.norm(dim=-1).pow(2)).sqrt()
         
-        return 1 - numerator / (divisor + 1e-8)
+        return 1 - numerator / (divisor + DIVISOR_EPS)
         
     def forward(self, image):
         if image.ndim == 4:
@@ -174,7 +179,7 @@ class Slice2RotMat_CodeBook(nn.Module):
 
         logits_pred = self.i2s.compute_logits(image.unsqueeze(1))
         probs_ft = torch.nn.functional.softmax(logits_pred, dim=-1).float()
-        # loss_neg_entropy = (probs_ft * torch.log(probs_ft + 1e-8)).sum(dim=-1).mean()
+        # loss_neg_entropy = (probs_ft * torch.log(probs_ft + DIVISOR_EPS)).sum(dim=-1).mean()
 
         rotations_ft = compute_weighted_average_so3(self.i2s.output_rotmats, probs_ft)
         # probs_ft = torch.nn.functional.gumbel_softmax(logits_pred, tau=1.0, hard=True).float()
@@ -278,7 +283,8 @@ class NeurOrient(nn.Module):
                  over_sampling=1,
                  photons_per_pulse=1e13,
                  use_bifpn=False,
-                 rec_level=3,
+                #  rec_level=3,
+                 rec_level=2,
                  use_fluctuation_predictor=True,
                  config_slice2rotmat={'size': 18, 'pretrained': True},
                  config_intensitynet={'dim_hidden': 256, 'num_layers': 5},):
@@ -298,9 +304,11 @@ class NeurOrient(nn.Module):
 
         self.over_sampling = over_sampling
             
-        # self.orientation_predictor = Slice2RotMat(**config_slice2rotmat)
+        # self.orientation_predictor = Slice2RotMat_CodeBook(rec_level=rec_level, 
+        #                                                    image_dimension=self.image_dimension)
         self.orientation_predictor = Slice2RotMat_CodeBook(rec_level=rec_level, 
-                                                           image_dimension=self.image_dimension)
+                                                           image_dimension=self.image_dimension,
+                                                           num_steps=7)
         if use_fluctuation_predictor:
             self.fluctuation_predictor = FluctuationPredictor(config_slice2rotmat['size'], config_slice2rotmat['pretrained'])
         else:
@@ -344,7 +352,7 @@ class NeurOrient(nn.Module):
 
 
     def estimate(self, batch, return_reconstruction=False):
-        slices_input = torch.log(batch['input_mask'] * batch['image'] * self.loss_scale_factor + 1e-8)
+        slices_input = torch.log(batch['input_mask'] * batch['image'] * self.loss_scale_factor + INTENSITY_MIN)
 
         # predict orientations from images
         orientations = self.image_to_orientation(slices_input)
@@ -432,7 +440,7 @@ class NeurOrientLightning(L.LightningModule):
             general_mask = torch.ones_like(slices_true).bool().bool()
 
         # Apply input and general masks and loss scale factor to get input slices.
-        slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + 1e-8)
+        slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + INTENSITY_MIN)
 
         return slices_input
     
@@ -456,7 +464,7 @@ class NeurOrientLightning(L.LightningModule):
             general_mask = torch.ones_like(slices_true).bool().bool()
 
         # Apply input and general masks and loss scale factor to get input slices.
-        slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + 1e-8)
+        slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + INTENSITY_MIN)
 
         # predict orientations from images
         orientations_out = self.model.orientation_predictor(slices_input)
@@ -470,7 +478,7 @@ class NeurOrientLightning(L.LightningModule):
             HKL = HKL.T
         # predict slices from HKL
         if self.log_transform:
-            _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(1e-8), np.log(2500 * self.model.loss_scale_factor))
+            _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(INTENSITY_MIN), np.log(2500 * self.model.loss_scale_factor))
         else:
             _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2)
 
@@ -481,8 +489,8 @@ class NeurOrientLightning(L.LightningModule):
         slices_scale_factor = 1.0
         
         if self.log_transform:
-            slices_target  = torch.log(general_mask * slices_true * self.model.loss_scale_factor + 1e-8)
-            slices_pred    = torch.log(general_mask * torch.exp(_slices_pred) * slices_scale_factor + 1e-8)
+            slices_target  = torch.log(general_mask * slices_true * self.model.loss_scale_factor + INTENSITY_MIN)
+            slices_pred    = torch.log(general_mask * torch.exp(_slices_pred) * slices_scale_factor + INTENSITY_MIN)
         else:
             slices_target  = general_mask * slices_true
             slices_pred    = general_mask * _slices_pred * slices_scale_factor
@@ -515,7 +523,7 @@ class NeurOrientLightning(L.LightningModule):
             general_mask = torch.ones_like(slices_true).bool().bool()
 
         # Apply input and general masks and loss scale factor to get input slices.
-        slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + 1e-8)
+        slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + INTENSITY_MIN)
 
         orientations_out = self.model.orientation_predictor(slices_input)
 
@@ -537,7 +545,7 @@ class NeurOrientLightning(L.LightningModule):
             HKL = HKL.T
         # predict slices from HKL
         if self.log_transform:
-            _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(1e-8), np.log(2500 * self.model.loss_scale_factor))
+            _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(INTENSITY_MIN), np.log(2500 * self.model.loss_scale_factor))
         else:
             _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2)
 
@@ -547,8 +555,8 @@ class NeurOrientLightning(L.LightningModule):
             slices_scale_factor = 1.0
         
         if self.log_transform:
-            slices_target  = torch.log(general_mask * slices_true * self.model.loss_scale_factor + 1e-8)
-            slices_pred    = torch.log(general_mask * torch.exp(_slices_pred) * slices_scale_factor + 1e-8)
+            slices_target  = torch.log(general_mask * slices_true * self.model.loss_scale_factor + INTENSITY_MIN)
+            slices_pred    = torch.log(general_mask * torch.exp(_slices_pred) * slices_scale_factor + INTENSITY_MIN)
         else:
             slices_target  = general_mask * slices_true
             slices_pred    = general_mask * _slices_pred * slices_scale_factor
@@ -566,7 +574,7 @@ class NeurOrientLightning(L.LightningModule):
             if self.log_transform:
                 slice_disp = torch.exp(_slices_pred) / self.model.loss_scale_factor
             else:
-                slice_disp = torch.log(input_mask * _slices_pred * self.model.loss_scale_factor + 1e-8)
+                slice_disp = torch.log(input_mask * _slices_pred * self.model.loss_scale_factor + INTENSITY_MIN)
             display_images_in_parallel(slice_disp[:num_figs], slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}.png', closefig=True)
             display_images_in_parallel(_slices_pred[:num_figs], slices_input[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_raw.png', closefig=True)
             
@@ -575,13 +583,13 @@ class NeurOrientLightning(L.LightningModule):
                 display_volumes(reciprocal_volume, closefig=True, cmap='gray',
                                 vmax=1e-3 * reciprocal_volume.max(),
                                 save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol.png')
-                display_volumes(np.log(reciprocal_volume.clip(1e-8, None)) - np.log(1e-8), closefig=True, cmap='gray',
+                display_volumes(np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN), closefig=True, cmap='gray',
                                 vmax=1e-3 * reciprocal_volume.max(),
                                 save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_log.png')
                 save_mrc(f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol.mrc', reciprocal_volume)
                 save_mrc(
                     f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_log.mrc', 
-                    np.log(reciprocal_volume.clip(1e-8, None)) - np.log(1e-8)
+                    np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN)
                 )
             except ValueError:
                 pass
@@ -602,7 +610,7 @@ class NeurOrientLightning(L.LightningModule):
             general_mask = torch.ones_like(slices_true).bool().bool()
 
         # Apply input and general masks and loss scale factor to get input slices.
-        slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + 1e-8)
+        slices_input  = torch.log(input_mask * slices_true * self.model.loss_scale_factor + INTENSITY_MIN)
 
         orientations_out = self.model.orientation_predictor(slices_input)
 
@@ -624,7 +632,7 @@ class NeurOrientLightning(L.LightningModule):
             HKL = HKL.T
         # predict slices from HKL
         if self.log_transform:
-            _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(1e-8), np.log(2500 * self.model.loss_scale_factor))
+            _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(INTENSITY_MIN), np.log(2500 * self.model.loss_scale_factor))
         else:
             _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2)
 
@@ -634,8 +642,8 @@ class NeurOrientLightning(L.LightningModule):
             slices_scale_factor = 1.0
         
         if self.log_transform:
-            slices_target  = torch.log(general_mask * slices_true * self.model.loss_scale_factor + 1e-8)
-            slices_pred    = torch.log(general_mask * torch.exp(_slices_pred) * slices_scale_factor + 1e-8)
+            slices_target  = torch.log(general_mask * slices_true * self.model.loss_scale_factor + INTENSITY_MIN)
+            slices_pred    = torch.log(general_mask * torch.exp(_slices_pred) * slices_scale_factor + INTENSITY_MIN)
         else:
             slices_target  = general_mask * slices_true
             slices_pred    = general_mask * _slices_pred * slices_scale_factor
@@ -653,7 +661,7 @@ class NeurOrientLightning(L.LightningModule):
             if self.log_transform:
                 slice_disp = torch.exp(_slices_pred) / self.model.loss_scale_factor
             else:
-                slice_disp = torch.log(input_mask * _slices_pred * self.model.loss_scale_factor + 1e-8)
+                slice_disp = torch.log(input_mask * _slices_pred * self.model.loss_scale_factor + INTENSITY_MIN)
             display_images_in_parallel(slice_disp[:num_figs], slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}.png', closefig=True)
             display_images_in_parallel(_slices_pred[:num_figs], slices_input[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_raw.png', closefig=True)
                 
@@ -689,7 +697,7 @@ class NeurOrientLightning(L.LightningModule):
         with torch.no_grad():
             for i in range(grid_reciprocal.shape[0]):
                 input_coords = grid_reciprocal[i,None,...].to(self.device)
-                volume[i] = self.model.predict_intensity(input_coords).detach().cpu().clamp(np.log(1e-8), np.log(2500 * self.model.loss_scale_factor)).numpy().squeeze()
+                volume[i] = self.model.predict_intensity(input_coords).detach().cpu().clamp(np.log(INTENSITY_MIN), np.log(2500 * self.model.loss_scale_factor)).numpy().squeeze()
         
         if self.log_transform:
             volume = np.exp(volume) / self.model.loss_scale_factor

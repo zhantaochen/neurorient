@@ -135,7 +135,7 @@ class Slice2RotMat_CodeBook(nn.Module):
     def get_ref_images(self, intens_func, pixel_position_reciprocal, image_dimension, over_sampling=1):
         with torch.no_grad():
             rotation_dset = TensorDataset(self.ref_rotations)
-            rotation_dloader = DataLoader(rotation_dset, batch_size=50, shuffle=False)
+            rotation_dloader = DataLoader(rotation_dset, batch_size=75, shuffle=False)
             _ref_images = []
             for batch in tqdm(rotation_dloader, miniters=int(len(rotation_dloader)/10)):
                 _rotations = batch[0].to(self.ref_rotations.device)
@@ -174,11 +174,13 @@ class Slice2RotMat_CodeBook(nn.Module):
 
         logits_pred = self.i2s.compute_logits(image.unsqueeze(1))
         probs_ft = torch.nn.functional.softmax(logits_pred, dim=-1).float()
+        # loss_neg_entropy = (probs_ft * torch.log(probs_ft + 1e-8)).sum(dim=-1).mean()
+
         rotations_ft = compute_weighted_average_so3(self.i2s.output_rotmats, probs_ft)
         # probs_ft = torch.nn.functional.gumbel_softmax(logits_pred, tau=1.0, hard=True).float()
         # rotations_ft = torch.einsum('bn, nij->bij', probs_ft, self.i2s.output_rotmats)
 
-        dist = self.distance_func_PC(image)        
+        dist = self.distance_func_PC(image)
         if hasattr(self, 'max_val'):
             max_val = self.max_val
         else:
@@ -191,7 +193,8 @@ class Slice2RotMat_CodeBook(nn.Module):
 
         rotations_base = torch.einsum('bn, nij->bij', probs_oh, self.ref_rotations)
 
-        rotations = torch.einsum('bij, bjk -> bik', rotations_ft, rotations_base)
+        # rotations = torch.einsum('bij, bjk -> bik', rotations_ft, rotations_base)
+        rotations = torch.einsum('bij, bjk -> bik', rotations_base, rotations_ft)
 
         output = {
             'rotations': rotations,
@@ -203,6 +206,7 @@ class Slice2RotMat_CodeBook(nn.Module):
             'probs_samp_min': probs_samp.amin(dim=-1).mean(),
             'probs_pred_max': logits_pred.softmax(dim=-1).amax(dim=-1).mean(),
             'probs_pred_min': logits_pred.softmax(dim=-1).amin(dim=-1).mean(),
+            # 'loss_neg_entropy': loss_neg_entropy,
         }
 
         return output
@@ -219,13 +223,13 @@ class FluctuationPredictor(nn.Module):
         self.resnet.conv1.weight.data = conv1_weight
         # Output 6D rotation matrix
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 1)
-        self.output_act = nn.Softplus()
+        self.output_relu = nn.ReLU()
     
     def forward(self, img):
         if img.ndim == 3:
             img = img.unsqueeze(1)
         output = self.resnet(img)
-        output = self.output_act(output)
+        output = self.output_relu(output)
         return output
     
 class IntensityNet(nn.Module):
@@ -268,57 +272,6 @@ class IntensityNet_Mixed(nn.Module):
         )) 
         return y_symm + y_adj
 
-# from torchinterp1d import interp1d
-# class IntensityNet_Mixed_w_PSD(nn.Module):
-#     def __init__(self, 
-#             dim_in=3,
-#             dim_hidden=256,
-#             dim_out=1,
-#             num_layers=5,
-#             PSD_data=None
-#         ):
-#         super().__init__()
-#         self.sym_net = SymmetrizedFeature('I')
-#         self.net_mag = SirenNet(
-#             dim_in=dim_in,
-#             dim_hidden=dim_hidden,
-#             dim_out=dim_out,
-#             num_layers=num_layers,
-#             )
-#         self.net_adj = SirenNet(
-#             dim_in=dim_in,
-#             dim_hidden=dim_hidden,
-#             dim_out=dim_out,
-#             num_layers=num_layers,
-#             )
-#         self.embed = torch.nn.Sequential(
-#             torch.nn.Linear(3, 64),
-#             torch.nn.SiLU(),
-#             torch.nn.Linear(64, 3),
-#         )
-
-#         if PSD_data is not None:
-#             self.register_buffer('q', PSD_data['q'])
-#             self.register_buffer('logI', PSD_data['logI'])
-
-#     def interp_PSD(self, x):
-#         q_query = x.norm(dim=-1).clamp(self.q.min(), self.q.max())
-#         logI_query = interp1d(self.q, self.logI, q_query)[0].unsqueeze(-1)
-#         return logI_query
-
-#     def forward(self, x):
-
-#         log_psd = self.interp_PSD(x)
-
-#         x_symm = self.sym_net(x)
-#         y_symm = self.net_mag(x_symm)
-#         y_adj = nn.functional.tanh(
-#             self.net_adj(
-#                 self.embed(x) + self.embed(-x)
-#             )
-#         )
-#         return y_symm + y_adj + log_psd.detach()
-    
 class NeurOrient(nn.Module):
     def __init__(self, 
                  pixel_position_reciprocal, 
@@ -354,21 +307,18 @@ class NeurOrient(nn.Module):
             self.fluctuation_predictor = None
 
         # setup volume predictor
+        # self.volume_predictor = IntensityNet_GSInv(
+        #     dim_in=3,
+        #     dim_hidden=config_intensitynet['dim_hidden'],
+        #     dim_out=1,
+        #     num_layers=config_intensitynet['num_layers'],
+        # )
         self.volume_predictor = IntensityNet_Mixed(
             dim_in=3,
             dim_hidden=config_intensitynet['dim_hidden'],
             dim_out=1,
             num_layers=config_intensitynet['num_layers'],
-            # final_activation=torch.nn.ReLU(),
         )
-        # self.volume_predictor = IntensityNet_Mixed_w_PSD(
-        #     dim_in=3,
-        #     dim_hidden=config_intensitynet['dim_hidden'],
-        #     dim_out=1,
-        #     num_layers=config_intensitynet['num_layers'],
-        #     # final_activation=torch.nn.ReLU(),
-        #     PSD_data=config_intensitynet['PSD_data']
-        # )
 
         self.photons_per_pulse = photons_per_pulse
         self.loss_scale_factor = 1e14 / self.photons_per_pulse
@@ -432,7 +382,6 @@ scheduler_dict = {
     'CosineLRScheduler': CosineLRScheduler,
 }
 
-
 class NeurOrientLightning(L.LightningModule):
     
     def __init__(self, 
@@ -466,10 +415,10 @@ class NeurOrientLightning(L.LightningModule):
         else:
             self.loss_func = torch.nn.PoissonNLLLoss(log_input=False, full=True)
             self.log_transform = False
-            self.model.volume_predictor = torch.nn.Sequential(
-                self.model.volume_predictor,
-                torch.nn.Softplus()
-            )
+            # self.model.volume_predictor = torch.nn.Sequential(
+            #     self.model.volume_predictor,
+            #     torch.nn.Softplus()
+            # )
 
     def prepare_input_slices(self, batch):
         
@@ -572,10 +521,13 @@ class NeurOrientLightning(L.LightningModule):
 
         orientations = orientations_out['rotations']
 
+        loss_additional = 0.0
         for k, v in orientations_out.items():
-            if k not in ['loss', 'rotations']:
-                if 'min' in k or 'max' in k:
-                    self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+            if 'min' in k or 'max' in k:
+                self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+            elif 'loss' in k:
+                self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+                loss_additional += v
 
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
@@ -603,16 +555,16 @@ class NeurOrientLightning(L.LightningModule):
 
         loss_reco = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
         
-        loss = loss_reco
+        loss = loss_reco + loss_additional
         self.log(f"{task_type}/loss_reco", loss_reco.item(), sync_dist=True)
         self.log(f"{task_type}/loss", loss.item(), prog_bar=True, sync_dist=True)
 
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
-        if self.global_step % 10 == 0 or batch_idx == 0:
+        if self.global_step % 10 == 0:
             self.get_figure_save_dir()
             num_figs = min(10, slices_true.shape[0])
             if self.log_transform:
-                slice_disp = torch.exp(_slices_pred) * slices_scale_factor
+                slice_disp = torch.exp(_slices_pred) / self.model.loss_scale_factor
             else:
                 slice_disp = torch.log(input_mask * _slices_pred * self.model.loss_scale_factor + 1e-8)
             display_images_in_parallel(slice_disp[:num_figs], slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}.png', closefig=True)
@@ -624,7 +576,7 @@ class NeurOrientLightning(L.LightningModule):
                                 vmax=1e-3 * reciprocal_volume.max(),
                                 save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol.png')
                 display_volumes(np.log(reciprocal_volume.clip(1e-8, None)) - np.log(1e-8), closefig=True, cmap='gray',
-                                vmax=1e-3 * (np.log(reciprocal_volume.clip(1e-8, None)) - np.log(1e-8)).max(),
+                                vmax=1e-3 * reciprocal_volume.max(),
                                 save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_log.png')
                 save_mrc(f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol.mrc', reciprocal_volume)
                 save_mrc(
@@ -656,10 +608,13 @@ class NeurOrientLightning(L.LightningModule):
 
         orientations = orientations_out['rotations']
 
+        loss_additional = 0.0
         for k, v in orientations_out.items():
-            if k not in ['loss', 'rotations']:
-                if 'min' in k or 'max' in k:
-                    self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+            if 'min' in k or 'max' in k:
+                self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+            elif 'loss' in k:
+                self.log(f"{task_type}/{k}", v.item(), sync_dist=True)
+                loss_additional += v
 
         # get reciprocal positions based on orientations
         # HKL has shape (3, num_qpts)
@@ -687,22 +642,20 @@ class NeurOrientLightning(L.LightningModule):
 
         loss_reco = self.loss_func(slices_pred[general_mask.bool()].cpu(), slices_target[general_mask.bool()].cpu())
         
-        loss = loss_reco
+        loss = loss_reco + loss_additional
         self.log(f"{task_type}/loss_reco", loss_reco.item(), sync_dist=True)
         self.log(f"{task_type}/loss", loss.item(), prog_bar=True, sync_dist=True)
 
         # display_volumes(rho, save_to=f'{self.path}/rho.png')
-        if self.global_step % 10 == 0 or batch_idx == 0:
+        if self.global_step % 10 == 0:
             self.get_figure_save_dir()
             num_figs = min(10, slices_true.shape[0])
             if self.log_transform:
-                slice_disp = torch.exp(_slices_pred) * slices_scale_factor
+                slice_disp = torch.exp(_slices_pred) / self.model.loss_scale_factor
             else:
                 slice_disp = torch.log(input_mask * _slices_pred * self.model.loss_scale_factor + 1e-8)
-            display_images_in_parallel(slice_disp[:num_figs], slices_true[:num_figs], 
-                                       save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}.png', closefig=True)
-            display_images_in_parallel(_slices_pred[:num_figs], slices_input[:num_figs], 
-                                       save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_raw.png', closefig=True)
+            display_images_in_parallel(slice_disp[:num_figs], slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}.png', closefig=True)
+            display_images_in_parallel(_slices_pred[:num_figs], slices_input[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_raw.png', closefig=True)
                 
             
             

@@ -469,9 +469,9 @@ def plot_so3_distribution(probs: torch.Tensor,
             gamma_gt.append(_gamma)
             color_gt.append(_color)
 
-    ax.grid(visible=True)
-    ax.set_xticklabels([])
-    ax.set_yticklabels([])
+    ax.grid(visible=True, which='major')
+    # ax.set_xticklabels([])
+    # ax.set_yticklabels([])
 
     if show_color_wheel:
         # Add a color wheel showing the tilt angle to color conversion.
