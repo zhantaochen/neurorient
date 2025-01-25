@@ -179,7 +179,7 @@ class Slice2RotMat_CodeBook(nn.Module):
 
         logits_pred = self.i2s.compute_logits(image.unsqueeze(1))
         probs_ft = torch.nn.functional.softmax(logits_pred, dim=-1).float()
-        # loss_neg_entropy = (probs_ft * torch.log(probs_ft + DIVISOR_EPS)).sum(dim=-1).mean()
+        # loss_neg_entropy = (probs_ft * torch.log(probs_ft + INTENSITY_MIN)).sum(dim=-1).mean()
 
         rotations_ft = compute_weighted_average_so3(self.i2s.output_rotmats, probs_ft)
         # probs_ft = torch.nn.functional.gumbel_softmax(logits_pred, tau=1.0, hard=True).float()

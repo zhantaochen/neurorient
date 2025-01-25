@@ -20,7 +20,8 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.strategies import DDPStrategy
 
-from neurorient.model_codebook_i2s_ft  import NeurOrientLightning
+# from neurorient.model_codebook_i2s_ft  import NeurOrientLightning
+from neurorient.model_codebook_i2s_ft_backup_2025Jan22  import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform, DictionaryDataset
 from neurorient.logger          import Logger 
 from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask, BeamStopMask_from_file
@@ -315,9 +316,14 @@ logger.log(
 )
 
 # %%
-checkpoint_callback = ModelCheckpoint(
-    every_n_train_steps=5, save_last=True, save_top_k=2, monitor="val/loss",
+checkpoint_callback_metrics = ModelCheckpoint(
+    every_n_train_steps=5, save_last=True, save_top_k=1, monitor="val/loss",
     filename=f'{pdb}-{{epoch}}-{{step}}'
+)
+
+checkpoint_callback_epochs = ModelCheckpoint(
+    every_n_epochs=10, monitor="val/loss",
+    filename=f'EpochSaving-{pdb}-{{epoch}}-{{step}}'
 )
 
 torch.set_float32_matmul_precision('high')
@@ -327,7 +333,7 @@ ddp = DDPStrategy(process_group_backend="nccl", find_unused_parameters=False)
 trainer = L.Trainer(
     max_epochs=max_epochs, accelerator='gpu', strategy=ddp,
     plugins=[LightningEnvironment()],
-    callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=1)],
+    callbacks=[checkpoint_callback_metrics, checkpoint_callback_epochs, TQDMProgressBar(refresh_rate=1)],
     log_every_n_steps=1, devices=num_gpus, sync_batchnorm=True,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 

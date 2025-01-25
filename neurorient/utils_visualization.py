@@ -117,7 +117,11 @@ def display_images(images, columns, vmax=None, size=3,
         ax_flat = [plt.subplot(cell) for cell in gs_sub]
     
     for k, (_ax, image) in enumerate(zip(ax_flat, images)):
-        _ax.imshow(image, cmap=cmap, vmax=vmax)
+        if isinstance(cmap, (list, tuple)):
+            _cmap = cmap[k]
+        else:
+            _cmap = cmap
+        _ax.imshow(image, cmap=_cmap, vmax=vmax)
         _ax.set_aspect('equal')
         if title != 'none':
             _ax.set_title(title[k])
@@ -471,6 +475,8 @@ def plot_so3_distribution(probs: torch.Tensor,
 
     ax.grid(visible=True, which='major')
     # ax.set_xticklabels([])
+    ax.tick_params(axis='x', colors='gray')
+    ax.tick_params(axis='y', colors='gray')
     # ax.set_yticklabels([])
 
     if show_color_wheel:
@@ -505,6 +511,52 @@ def plot_so3_distribution(probs: torch.Tensor,
         'gamma_gt': gamma_gt,
         'colors_gt': color_gt
     }
+
+import matplotlib.ticker as ticker
+
+def plot_so3_distribution_inset(so3_plt_out, fig, ax, 
+                                offset_x=0.05, offset_y=0.05, alpha=0.5, s_factor=10,
+                                title=None):
+    # ax.grid()
+    disp_coords = ax.transData.transform((so3_plt_out['alpha'].mean().item(), so3_plt_out['beta'].mean().item()))
+    fig_coords = fig.transFigure.inverted().transform(disp_coords)
+    ax2 = fig.add_axes([fig_coords[0]+offset_x, fig_coords[1]+offset_y, 0.15, 0.15])
+    ax2.scatter(
+        np.rad2deg(so3_plt_out['alpha']), 
+        np.rad2deg(so3_plt_out['beta']), 
+        s=s_factor*so3_plt_out['sizes'], 
+        facecolor=so3_plt_out['colors'], edgecolor='none', alpha=alpha
+    )
+    delta_alpha = 0.25 * (max(np.rad2deg(so3_plt_out['alpha'])) - min(np.rad2deg(so3_plt_out['alpha'])))
+    delta_beta = 0.25 * (max(np.rad2deg(so3_plt_out['beta'])) - min(np.rad2deg(so3_plt_out['beta'])))
+    
+    ax2.xaxis.set_major_locator(ticker.MultipleLocator(5))
+    ax2.yaxis.set_major_locator(ticker.MultipleLocator(3))
+    
+    ax2.set_xlim(min(np.rad2deg(so3_plt_out['alpha']))-delta_alpha, max(np.rad2deg(so3_plt_out['alpha'])) + delta_alpha)
+    ax2.set_ylim(min(np.rad2deg(so3_plt_out['beta']))-delta_beta, max(np.rad2deg(so3_plt_out['beta'])) + delta_beta)
+    ax2.set_xticklabels([f'{_tick:.0f}°' for _tick in ax2.get_xticks()])
+    ax2.set_yticklabels([f'{_tick:.0f}°' for _tick in ax2.get_yticks()])
+    if title is not None:
+        ax2.set_title(title)
+    return ax2
+
+def plot_so3_distribution_inset_3d(so3_plt_out, fig, ax, offset_x=0.05, offset_y=0.05, alpha=0.5, s_factor=10):
+    # ax.grid()
+    disp_coords = ax.transData.transform((so3_plt_out['alpha'].mean().item(), so3_plt_out['beta'].mean().item()))
+    fig_coords = fig.transFigure.inverted().transform(disp_coords)
+    ax2 = fig.add_axes([fig_coords[0]+offset_x, fig_coords[1]+offset_y, 0.15, 0.15], projection='3d')
+    ax2.scatter(
+        np.rad2deg(so3_plt_out['alpha']), np.rad2deg(so3_plt_out['beta']), np.rad2deg(so3_plt_out['gamma']), 
+        s=s_factor*so3_plt_out['sizes'], facecolor=so3_plt_out['colors'], edgecolor='none', alpha=alpha
+    )
+    delta_alpha = 0.25 * (max(np.rad2deg(so3_plt_out['alpha'])) - min(np.rad2deg(so3_plt_out['alpha'])))
+    delta_beta = 0.25 * (max(np.rad2deg(so3_plt_out['beta'])) - min(np.rad2deg(so3_plt_out['beta'])))
+    delta_gamma = 0.25 * (max(np.rad2deg(so3_plt_out['gamma'])) - min(np.rad2deg(so3_plt_out['gamma'])))
+    ax2.set_xlim(min(np.rad2deg(so3_plt_out['alpha']))-delta_alpha, max(np.rad2deg(so3_plt_out['alpha'])) + delta_alpha)
+    ax2.set_ylim(min(np.rad2deg(so3_plt_out['beta']))-delta_beta, max(np.rad2deg(so3_plt_out['beta'])) + delta_beta)
+    ax2.set_zlim(min(np.rad2deg(so3_plt_out['gamma']))-delta_gamma, max(np.rad2deg(so3_plt_out['gamma'])) + delta_gamma)
+    return ax2
     
 # def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None):
 
