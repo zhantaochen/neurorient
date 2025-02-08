@@ -197,22 +197,21 @@ sampler_train    = None
 dataloader_train = torch.utils.data.DataLoader( dataset_train,
                                                 sampler     = sampler_train,
                                                 shuffle     = True,
-                                                batch_size  = size_batch,
-                                                num_workers = num_workers, )
+                                                batch_size  = size_batch,)
 
 sampler_validate    = None
 dataloader_validate = torch.utils.data.DataLoader( dataset_validate,
                                                    sampler     = sampler_validate,
                                                    shuffle     = False,
-                                                   batch_size  = size_batch,
-                                                   num_workers = num_workers, )
+                                                   batch_size  = size_batch,)
 
 # %%
 # [[[ MODEL ]]]
 
 
 if args.checkpoint is not None:
-    model = NeurOrientLightning.load_from_checkpoint(args.checkpoint)
+    model = NeurOrientLightning.load_from_checkpoint(args.checkpoint, strict=False)
+    model.configure_optimization = prepare_optimization_config(merged_config)
     logger.log(f"Resume training from checkpoint: {args.checkpoint}.")
 else:
     over_sampling = merged_config.MODEL.OVERSAMPLING
@@ -268,12 +267,20 @@ checkpoint_callback = ModelCheckpoint(
 )
 
 torch.set_float32_matmul_precision('high')
-
+from lightning.pytorch.plugins.environments import LightningEnvironment
 ddp = DDPStrategy(process_group_backend="nccl")
+# trainer = L.Trainer(
+#     max_epochs=max_epochs, accelerator='gpu', strategy=ddp, logger=tb_logger,
+#     plugins=[LightningEnvironment()],
+#     callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=10)],
+#     log_every_n_steps=1, devices=num_gpus, sync_batchnorm = True, num_nodes=1,
+#     enable_checkpointing=True, default_root_dir=dir_chkpt)
 trainer = L.Trainer(
-    max_epochs=max_epochs, accelerator='gpu', strategy=ddp, logger=tb_logger,
-    callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=10)],
-    log_every_n_steps=1, devices=num_gpus, sync_batchnorm = True,
+    max_epochs=max_epochs, 
+    accelerator='gpu', strategy=ddp,
+    plugins=[LightningEnvironment()],
+    callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=1)],
+    log_every_n_steps=1, devices=num_gpus, sync_batchnorm=True,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 
 # dump configuration to file for later reference
@@ -285,6 +292,7 @@ dump_log_fname = Path(os.path.join(trainer.logger.log_dir, 'log.txt'))
 dump_log_fname.parent.mkdir(parents=True, exist_ok=True)
 logger.dump_to_file(dump_log_fname)
 
-trainer.fit(model, dataloader_train, dataloader_validate)
+# trainer.fit(model, dataloader_train, dataloader_validate)
+trainer.fit(model, dataloader_train, dataloader_validate, ckpt_path=args.checkpoint)
 
 

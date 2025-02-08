@@ -93,11 +93,13 @@ def prepare_optimization_config(config):
     return _prepare_optimization_config(config.OPTIM.to_dict())
 
 
-def prepare_dataset(config, data_input, verbose=True):
+def prepare_dataset(config, data_input, verbose=True, scale_by_increase_factor=False):
     # Current script's directory
     script_dir = os.path.dirname(os.path.realpath(__file__))
-    
-    data = config.DATASET.INCREASE_FACTOR * data_input.clone()
+    if scale_by_increase_factor:
+        data = config.DATASET.INCREASE_FACTOR * data_input.clone()
+    else:
+        data = data_input.clone()
     del data_input
     transform_list = []
 

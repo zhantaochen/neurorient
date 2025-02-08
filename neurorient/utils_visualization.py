@@ -39,7 +39,8 @@ def save_mrc(output, data, voxel_size=None, header_origin=None):
     return
 
 def display_fsc(q, fsc, 
-                resolution=None, criteria=0.5, res_pos=None, show_upper_xlabels=True,
+                resolution=None, criteria=0.5, res_pos=None, show_upper_xlabels=True, 
+                xlim=None, ylim=None,
                 save_to=None, closefig=False, ax=None, fsc_args={}, fontsize_mid=14):
     if ax is None:
         fig, ax1 = plt.subplots()
@@ -68,8 +69,14 @@ def display_fsc(q, fsc,
                 ax1.text(1 / res + 0.001, 
                         crit - 0.125, 
                         f'{res:.2f} $\mathrm{{\AA}}$', fontsize=11, ha='right')
-    ax1.set_xlim([-0.005, q.max()+0.005])
-    ax1.set_ylim([min(-0.05, fsc.min()-0.025), 1.05])
+    if xlim is not None:
+        ax1.set_xlim(xlim)
+    else:
+        ax1.set_xlim([-0.005, q.max()+0.005])
+    if ylim is not None:
+        ax1.set_ylim(ylim)
+    else:
+        ax1.set_ylim([min(-0.05, fsc.min()-0.025), 1.05])
 
     if show_upper_xlabels:
         ax2 = ax1.twiny()
@@ -238,7 +245,7 @@ def display_images_in_parallel(
         plt.close()
 
 def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None, axes_labels='xyz', titles=None, 
-                    ticklabelssoff=True, fontsize_mid=14):
+                    ticklabelssoff=True, fontsize_mid=14, extent=None):
 
     if isinstance(volumes, (list, tuple)):
         volumes = [convert_to_numpy(v) for v in volumes]
@@ -255,9 +262,9 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
         fig, ax = plt.subplots(N, 3, figsize=(9.5, 3 * N))
     if N == 1:
         dim1, dim2, dim3 = volumes[0].shape
-        ax[0].imshow(volumes[0][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
-        ax[1].imshow(volumes[0][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
-        ax[2].imshow(volumes[0][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
+        ax[0].imshow(volumes[0][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower', extent=extent)
+        ax[1].imshow(volumes[0][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower', extent=extent)
+        ax[2].imshow(volumes[0][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower', extent=extent)
         ax[0].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
         ax[1].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
         ax[2].set_ylabel(axes_labels[1], fontsize=fontsize_mid)
@@ -273,9 +280,9 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
     else:
         for i in range(N):
             dim1, dim2, dim3 = volumes[i].shape
-            ax[i,0].imshow(volumes[i][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
-            ax[i,1].imshow(volumes[i][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
-            ax[i,2].imshow(volumes[i][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
+            ax[i,0].imshow(volumes[i][dim1//2,:,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower', extent=extent)
+            ax[i,1].imshow(volumes[i][:,dim2//2,:].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower', extent=extent)
+            ax[i,2].imshow(volumes[i][:,:,dim3//2].T, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower', extent=extent)
             
             ax[i,0].set_ylabel(axes_labels[2], fontsize=fontsize_mid)
             ax[i,1].set_ylabel(axes_labels[2], fontsize=fontsize_mid)

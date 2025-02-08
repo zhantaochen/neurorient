@@ -20,10 +20,9 @@ import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.strategies import DDPStrategy
 
-# from neurorient.model_codebook_i2s_ft  import NeurOrientLightning
-from neurorient.model_codebook_i2s_ft_backup_2025Jan22  import NeurOrientLightning
+from neurorient.model           import NeurOrientLightning
 from neurorient.dataset         import TensorDatasetWithTransform, DictionaryDataset
-from neurorient.logger          import Logger 
+from neurorient.logger          import Logger
 from neurorient.image_transform import RandomPatch, PhotonFluctuation, PoissonNoise, GaussianNoise, BeamStopMask, BeamStopMask_from_file
 from neurorient.configurator    import Configurator
 # from neurorient.lr_scheduler    import CosineLRScheduler
@@ -45,8 +44,6 @@ parser.add_argument('-ckpt', '--checkpoint', help="Resume from the checkpoint fi
 
 args = parser.parse_args()
 
-logger.log(f"loaded arguments: {args}")
-
 # %%
 # [[[ HYPER-PARAMERTERS ]]]
 # Load CONFIG from YAML
@@ -62,11 +59,8 @@ logger.log(f"overwrite default model configurations with customed configurations
 
 
 if hasattr(merged_config.TRAINING, 'SEED'):
-    if merged_config.TRAINING.SEED > 0:
-        L.seed_everything(merged_config.TRAINING.SEED)
-        logger.log(f"SEED set to {merged_config.TRAINING.SEED}.")
-    else:
-        logger.log(f"SEED not specified and not set.")
+    L.seed_everything(merged_config.TRAINING.SEED)
+    logger.log(f"SEED set to {merged_config.TRAINING.SEED}.")
 else:
     logger.log(f"SEED not specified and not set.")
 
@@ -106,7 +100,7 @@ spi_data = torch.load(os.path.join(dir_dataset, data_file_name))
 
 # Set global seed and split data...
 total_num_data    = len(spi_data['intensities'])
-data              = spi_data['intensities'][:int(total_num_data * frac_total)]
+data              = spi_data['intensities'][:int(total_num_data * frac_total)] * merged_config.DATASET.INCREASE_FACTOR
 spi_data_train    = data[:int(len(data) * frac_train) ]
 spi_data_validate = data[ int(len(data) * frac_train):]
 
@@ -147,16 +141,6 @@ if merged_config.DATASET.USES_BEAM_STOP_MASK:
                                     return_mask        = True)
         transform_list.append(beam_stop_mask)
         logger.log(f'transformation: beam stop mask applied to training and validation datasets.')
-
-# if merged_config.DATASET.USES_RANDOM_ROTATION:
-#     import torchvision
-#     random_rotation = RandomRotation(
-#         degrees=(0, 360), return_mask=False,
-#         interpolation=torchvision.transforms.InterpolationMode.BILINEAR
-#     )
-    
-#     transform_list.append(random_rotation)
-#     logger.log(f'transformation: using random rotation.')
     
 if merged_config.DATASET.USES_RANDOM_PATCH:
     # set up random patch transformation
@@ -205,7 +189,6 @@ else:
     logger.log(f'NO random patch transformation applied to training and validation datasets.')
 
 logger.log(f'created training dataset with {len(dataset_train)} images and validation dataset with {len(dataset_validate)} images.')
-print(dataset_train.tensors['image'].max())
 
 # %%
 
@@ -214,71 +197,41 @@ sampler_train    = None
 dataloader_train = torch.utils.data.DataLoader( dataset_train,
                                                 sampler     = sampler_train,
                                                 shuffle     = True,
-                                                pin_memory  = False,
-                                                batch_size  = size_batch,
-                                                num_workers = num_workers, 
-                                                persistent_workers = True, drop_last=True)
+                                                batch_size  = size_batch,)
 
 sampler_validate    = None
 dataloader_validate = torch.utils.data.DataLoader( dataset_validate,
                                                    sampler     = sampler_validate,
                                                    shuffle     = False,
-                                                   pin_memory  = False,
-                                                   batch_size  = size_batch // num_gpus,
-                                                   num_workers = num_workers, 
-                                                   persistent_workers = True, drop_last=True)
+                                                   batch_size  = size_batch,)
 
 # %%
 # [[[ MODEL ]]]
 
 
-over_sampling = merged_config.MODEL.OVERSAMPLING
-photons_per_pulse = merged_config.DATASET.INCREASE_FACTOR * 1e12
-config_optimization = prepare_optimization_config(merged_config)
-config_intensitynet = prepare_IntensityNet_config(merged_config)
-config_slice2rotmat = prepare_Slice2RotMat_config(merged_config)
-
-if hasattr(merged_config.MODEL, "PRED_PHOTON_PULSE_ANYWAY"):
-    if merged_config.MODEL.PRED_PHOTON_PULSE_ANYWAY:
-        use_fluctuation_predictor=True
-    else:
-        use_fluctuation_predictor=False
-else:
-    if merged_config.DATASET.USES_PHOTON_FLUCTUATION:
-        use_fluctuation_predictor=True
-    else:
-        use_fluctuation_predictor=False
-        
-logger.log(f"Using fluctuation predictor: {use_fluctuation_predictor}")
-
-if hasattr(merged_config.MODEL, "ROTMAT_DIVERSITY"):
-    config_orientation_diversity_loss = {
-        'max': merged_config.MODEL.ROTMAT_DIVERSITY.MAX,
-        'min': merged_config.MODEL.ROTMAT_DIVERSITY.MIN,
-        'scale': merged_config.MODEL.ROTMAT_DIVERSITY.SCALE
-    }
-else:
-    config_orientation_diversity_loss = None
-logger.log(f"config_orientation_diversity_loss: \n", config_orientation_diversity_loss)
-
-
-# from neurorient.utils_model import get_radial_profile, get_volume_radial_profile
-# q_img, I_img = get_radial_profile(
-#     images=dataset_train.tensors['image'],
-#     pixel_positions=spi_data['pixel_position_reciprocal'],
-#     decimals=1
-# )
-# config_intensitynet['PSD_data'] = {
-#     'q': q_img, 'logI': torch.log(I_img.clamp(1e-16, None))
-# }
-
 if args.checkpoint is not None:
-    model = NeurOrientLightning.load_from_checkpoint(
-        args.checkpoint, strict=False
-    )
-    model.configure_optimization = config_optimization
-    logger.log(f"Resume training from state_dict of: {args.checkpoint}.")
+    model = NeurOrientLightning.load_from_checkpoint(args.checkpoint)
+    logger.log(f"Resume training from checkpoint: {args.checkpoint}.")
 else:
+    over_sampling = merged_config.MODEL.OVERSAMPLING
+    photons_per_pulse = merged_config.DATASET.INCREASE_FACTOR * 1e12
+    config_optimization = prepare_optimization_config(merged_config)
+    config_intensitynet = prepare_IntensityNet_config(merged_config)
+    config_slice2rotmat = prepare_Slice2RotMat_config(merged_config)
+
+    if hasattr(merged_config.MODEL, "PRED_PHOTON_PULSE_ANYWAY"):
+        if merged_config.MODEL.PRED_PHOTON_PULSE_ANYWAY:
+            use_fluctuation_predictor=True
+        else:
+            use_fluctuation_predictor=False
+    else:
+        if merged_config.DATASET.USES_PHOTON_FLUCTUATION:
+            use_fluctuation_predictor=True
+        else:
+            use_fluctuation_predictor=False
+            
+    logger.log(f"Using fluctuation predictor: {use_fluctuation_predictor}")
+    
     model = NeurOrientLightning(
         spi_data['pixel_position_reciprocal'],
         over_sampling=over_sampling, 
@@ -289,7 +242,7 @@ else:
         config_intensitynet=config_intensitynet,
         config_optimization=config_optimization
     )
-
+    
     logger.log( 
         'arguments being used in building the model:\n',
         f'over_sampling={over_sampling}\n',
@@ -297,44 +250,34 @@ else:
         'config_slice2rotmat: ', '\n', pprint.pformat(config_slice2rotmat), '\n',
         'config_optimization: ', '\n', pprint.pformat(config_optimization))
 
-# if args.checkpoint is not None:
-#     ckpt_state_dict = torch.load(args.checkpoint, map_location='cpu')['state_dict']
-#     ckpt_state_dict_updated = {}
-#     for k, v in ckpt_state_dict.items():
-#         if 'symm_ops' in k or \
-#             'training_reciprocal_grid' in k or \
-#             'training_symm_reciprocal_grid' in k:
-#             continue
-#         ckpt_state_dict_updated[k] = v
-#     model.load_state_dict(
-#         ckpt_state_dict_updated, strict=False
-#     )
-#     logger.log(f"Resume training from state_dict of: {args.checkpoint}.")
-
 logger.log(
     "model created with the following architecture:\n",
     pprint.pformat(model)
 )
 
 # %%
-checkpoint_callback_metrics = ModelCheckpoint(
-    every_n_train_steps=5, save_last=True, save_top_k=1, monitor="val/loss",
+
+from lightning.pytorch import loggers as pl_loggers
+tb_logger = pl_loggers.TensorBoardLogger(save_dir=dir_chkpt)
+
+checkpoint_callback = ModelCheckpoint(
+    every_n_train_steps=10, save_last=True, save_top_k=1, monitor="val_loss",
     filename=f'{pdb}-{{epoch}}-{{step}}'
 )
 
-checkpoint_callback_epochs = ModelCheckpoint(
-    every_n_epochs=10, monitor="val/loss",
-    filename=f'EpochSaving-{pdb}-{{epoch}}-{{step}}'
-)
-
 torch.set_float32_matmul_precision('high')
-
 from lightning.pytorch.plugins.environments import LightningEnvironment
-ddp = DDPStrategy(process_group_backend="nccl", find_unused_parameters=False)
+ddp = DDPStrategy(process_group_backend="nccl")
+# trainer = L.Trainer(
+#     max_epochs=max_epochs, accelerator='gpu', strategy=ddp, logger=tb_logger,
+#     plugins=[LightningEnvironment()],
+#     callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=10)],
+#     log_every_n_steps=1, devices=num_gpus, sync_batchnorm = True, num_nodes=1,
+#     enable_checkpointing=True, default_root_dir=dir_chkpt)
 trainer = L.Trainer(
     max_epochs=max_epochs, accelerator='gpu', strategy=ddp,
     plugins=[LightningEnvironment()],
-    callbacks=[checkpoint_callback_metrics, checkpoint_callback_epochs, TQDMProgressBar(refresh_rate=1)],
+    callbacks=[checkpoint_callback, TQDMProgressBar(refresh_rate=1)],
     log_every_n_steps=1, devices=num_gpus, sync_batchnorm=True,
     enable_checkpointing=True, default_root_dir=dir_chkpt)
 
@@ -347,7 +290,6 @@ dump_log_fname = Path(os.path.join(trainer.logger.log_dir, 'log.txt'))
 dump_log_fname.parent.mkdir(parents=True, exist_ok=True)
 logger.dump_to_file(dump_log_fname)
 
-trainer.fit(model, dataloader_train, dataloader_validate, ckpt_path=args.checkpoint)
-# trainer.fit(model, dataloader_train, dataloader_validate)
+trainer.fit(model, dataloader_train, dataloader_validate)
 
 

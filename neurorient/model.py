@@ -217,6 +217,31 @@ class NeurOrient(nn.Module):
         return slices
 
 
+
+    def estimate_direct_input(self, batch, return_reconstruction=False):
+        if isinstance(batch, dict):
+            slices_true = batch['image']
+            input_mask  = batch['input_mask'].bool()
+            general_mask = batch['general_mask'].bool()
+        else:
+            slices_true = batch[0]
+            input_mask = torch.ones_like(slices_true).bool().bool()
+            general_mask = torch.ones_like(slices_true).bool().bool()
+
+        # Apply input and general masks and loss scale factor to get input slices.
+        slices_input  = input_mask  * general_mask * torch.log(slices_true * self.loss_scale_factor + 1.)
+
+        # predict orientations from images
+        orientations = self.image_to_orientation(slices_input)
+        # get reciprocal positions based on orientations
+        # HKL has shape (3, num_qpts)
+        HKL = gen_nonuniform_normalized_positions(
+            orientations, self.pixel_position_reciprocal, self.over_sampling)
+        # predict slices from HKL
+        slices_pred = self.predict_slice(HKL).view((-1, 1,) + (self.image_dimension,)*2)
+
+        return orientations, (torch.exp(slices_pred) - 1) / self.loss_scale_factor
+
     def estimate(self, x, return_reconstruction=False):
         slices_true = x
 

@@ -100,8 +100,11 @@ class Slice2RotMat(nn.Module):
     #     return loss, z_q, perplexity
     
 
+import torch.distributed as dist
+from torch.utils.data import DistributedSampler
 from .so3_decomposition import threshold_dict
 from .utils_avg_rotations import compute_weighted_average_so3
+
 class Slice2RotMat_CodeBook(nn.Module):
     def __init__(self, rec_level=3, image_dimension=128):
         super().__init__()
@@ -135,20 +138,73 @@ class Slice2RotMat_CodeBook(nn.Module):
         self.register_buffer('ref_images', ref_images)
         print(f'Reference images generated, sampling at max_val: {self.max_val}')
         
+    # def get_ref_images(self, intens_func, pixel_position_reciprocal, image_dimension, over_sampling=1):
+    #     with torch.no_grad():
+    #         rotation_dset = TensorDataset(self.ref_rotations)
+    #         rotation_dloader = DataLoader(rotation_dset, batch_size=75, shuffle=False)
+    #         _ref_images = []
+    #         for batch in tqdm(rotation_dloader, miniters=int(len(rotation_dloader)/10)):
+    #             _rotations = batch[0].to(self.ref_rotations.device)
+    #             HKL = gen_nonuniform_normalized_positions(
+    #                 _rotations, pixel_position_reciprocal, over_sampling).T
+    #             _intens = intens_func(HKL)
+    #             _ref_images.append(_intens.view((-1, ) + (image_dimension,)*2))
+    #         ref_images = torch.cat(_ref_images, dim=0)
+    #     self.register_buffer('ref_images', ref_images)
+    #     print(f'Reference images generated, sampling at max_val: {self.max_val}')
+
+    @torch.no_grad()
     def get_ref_images(self, intens_func, pixel_position_reciprocal, image_dimension, over_sampling=1):
-        with torch.no_grad():
-            rotation_dset = TensorDataset(self.ref_rotations)
-            rotation_dloader = DataLoader(rotation_dset, batch_size=75, shuffle=False)
-            _ref_images = []
-            for batch in tqdm(rotation_dloader, miniters=int(len(rotation_dloader)/10)):
-                _rotations = batch[0].to(self.ref_rotations.device)
-                HKL = gen_nonuniform_normalized_positions(
-                    _rotations, pixel_position_reciprocal, over_sampling).T
-                _intens = intens_func(HKL)
-                _ref_images.append(_intens.view((-1, ) + (image_dimension,)*2))
-            ref_images = torch.cat(_ref_images, dim=0)
-        self.register_buffer('ref_images', ref_images)
-        print(f'Reference images generated, sampling at max_val: {self.max_val}')
+        if not dist.is_initialized():
+            dist.init_process_group(backend='nccl')
+
+        world_size = dist.get_world_size()
+        rank = dist.get_rank()
+
+        # Create dataset with indices for sorting
+        indices = torch.arange(len(self.ref_rotations)).to(self.ref_rotations.device)
+        rotation_dset = TensorDataset(indices, self.ref_rotations)
+        sampler = DistributedSampler(rotation_dset, num_replicas=world_size, rank=rank, shuffle=False)
+        rotation_dloader = DataLoader(rotation_dset, batch_size=50, sampler=sampler)
+
+        _ref_images = []
+        _indices = []
+
+        for batch in tqdm(rotation_dloader, desc=f"Rank {rank}", miniters=max(1, len(rotation_dloader)//10)):
+            _indices.append(batch[0])  # Collect the indices
+            _rotations = batch[1].to(self.ref_rotations.device)
+            HKL = gen_nonuniform_normalized_positions(
+                _rotations, pixel_position_reciprocal, over_sampling).T
+            _intens = intens_func(HKL)
+            _ref_images.append(_intens.view((-1,) + (image_dimension,) * 2))
+
+        # Concatenate local results
+        ref_images_local = torch.cat(_ref_images, dim=0)
+        indices_local = torch.cat(_indices, dim=0)
+
+        # Gather results from all ranks
+        gathered_ref_images = [torch.zeros_like(ref_images_local) for _ in range(world_size)]
+        gathered_indices = [torch.zeros_like(indices_local) for _ in range(world_size)]
+
+        dist.all_gather(gathered_ref_images, ref_images_local)
+        dist.all_gather(gathered_indices, indices_local)
+
+        # Combine gathered results and sort by indices
+        # if rank == 0:
+        
+        gathered_ref_images = torch.cat(gathered_ref_images, dim=0)
+        gathered_indices = torch.cat(gathered_indices, dim=0)
+
+        # Sort based on indices to ensure the order is consistent
+        sorted_indices, sorted_order = torch.sort(gathered_indices)
+        ref_images_sorted = gathered_ref_images[sorted_order]
+
+        self.register_buffer('ref_images', ref_images_sorted)
+        print(f'\nReference images generated, sampling at max_val: {self.max_val}')
+
+        # Ensure all processes finish before proceeding
+        dist.barrier()
+
 
     def normalize_to_range(self, x, min_val=0.0, max_val=2*np.pi):
         return (x - x.amin(dim=-1, keepdim=True)) / (x.amax(dim=-1, keepdim=True) - x.amin(dim=-1, keepdim=True) + DIVISOR_EPS) * (max_val - min_val) + min_val
@@ -668,6 +724,28 @@ class NeurOrientLightning(L.LightningModule):
                 slice_disp = torch.log(input_mask * _slices_pred * self.model.loss_scale_factor + INTENSITY_MIN)
             display_images_in_parallel(slice_disp[:num_figs], slices_true[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}.png', closefig=True)
             display_images_in_parallel(_slices_pred[:num_figs], slices_input[:num_figs], save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_raw.png', closefig=True)
+        
+        if self.current_epoch % 10 == 1 and batch_idx == 0:
+            
+            reciprocal_volume = self.predict_reciprocal_volume()
+            try:
+                display_volumes(reciprocal_volume, closefig=True, cmap='gray',
+                                vmax=1e-3 * reciprocal_volume.max(),
+                                save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol.png')
+                display_volumes(np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN), closefig=True, cmap='gray',
+                                vmax=1e-3 * reciprocal_volume.max(),
+                                save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_log.png')
+                # save_mrc(f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol.mrc', reciprocal_volume)
+                # save_mrc(
+                #     f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_log.mrc', 
+                #     np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN)
+                # )
+                torch.save({'volume': reciprocal_volume, 
+                            'volume_log': np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN)
+                            }, 
+                           f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_epoch{self.current_epoch}.pt')
+            except ValueError:
+                pass
                 
             
             
