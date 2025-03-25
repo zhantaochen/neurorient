@@ -289,9 +289,9 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
             ax[i,2].set_ylabel(axes_labels[1], fontsize=fontsize_mid)
             if titles is not None:
                 ax[i,1].set_title(titles[i], fontsize=fontsize_mid)
-        ax[-1,0].set_xlabel(axes_labels[1])
-        ax[-1,1].set_xlabel(axes_labels[0])
-        ax[-1,2].set_xlabel(axes_labels[0])
+        ax[-1,0].set_xlabel(axes_labels[1], fontsize=fontsize_mid)
+        ax[-1,1].set_xlabel(axes_labels[0], fontsize=fontsize_mid)
+        ax[-1,2].set_xlabel(axes_labels[0], fontsize=fontsize_mid)
         
         if ticklabelssoff:
             for i in range(N):
@@ -307,6 +307,8 @@ def display_volumes(volumes, ax=None, save_to=None, closefig=True, vmin=None, vm
     if closefig:
         plt.close()
 
+    return ax
+
 
 def display_volumes_pcolormesh(volumes, ax=None, save_to=None, closefig=True, vmin=None, vmax=None, cmap=None, axes_labels='xyz', titles=None, 
                     ticklabelssoff=True, fontsize_mid=14):
@@ -320,6 +322,8 @@ def display_volumes_pcolormesh(volumes, ax=None, save_to=None, closefig=True, vm
         axes_labels = ['$x$', '$y$', '$z$']
     elif axes_labels == 'hkl':
         axes_labels = ['$h$', '$k$', '$l$']
+    elif axes_labels == None:
+        axes_labels = ['']*3
     
     N = len(volumes)
     if ax is None:
@@ -418,6 +422,7 @@ def plot_so3_distribution(probs: torch.Tensor,
                           max_marker_size: float = 10.,
                           min_marker_size: float = None,
                           figsize=(8, 4),
+                          marker_alpha=0.5,
                          ):
     '''
     Taken from https://github.com/google-research/google-research/blob/master/implicit_pdf/evaluation.py
@@ -460,7 +465,7 @@ def plot_so3_distribution(probs: torch.Tensor,
                beta[which_to_display]-np.pi/2,
                s=scatterpoint_sizes,
                c=cmap(0.5 + gamma[which_to_display] / 2. / np.pi),
-               alpha=0.5)
+               alpha=marker_alpha)
     alpha_gt = []
     beta_gt = []
     gamma_gt = []
@@ -488,7 +493,7 @@ def plot_so3_distribution(probs: torch.Tensor,
 
     if show_color_wheel:
         # Add a color wheel showing the tilt angle to color conversion.
-        ax = fig.add_axes([0.86, 0.17, 0.12, 0.12], projection='polar')
+        ax = fig.add_axes([0.88, 0.15, 0.12, 0.12], projection='polar')
         theta = np.linspace(-3 * np.pi / 2, np.pi / 2, 200)
         radii = np.linspace(0.4, 0.5, 2)
         _, theta_grid = np.meshgrid(radii, theta)
@@ -500,7 +505,7 @@ def plot_so3_distribution(probs: torch.Tensor,
                             r'270$\degree$', None,
                             r'0$\degree$'], fontsize=12)
         ax.spines['polar'].set_visible(True)
-        plt.text(0.5, 0.5, 'Tilt', fontsize=14,
+        plt.text(0.5, 0.5, r'$\gamma$', fontsize=15,
                  horizontalalignment='center',
                  verticalalignment='center', transform=ax.transAxes)
 

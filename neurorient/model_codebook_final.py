@@ -17,7 +17,7 @@ from copy import deepcopy
 
 from .image_encoder import ImageEncoder
 from .bifpn import DepthwiseSeparableConv2d, BiFPN
-from pytorch3d.transforms import rotation_6d_to_matrix, euler_angles_to_matrix, random_rotations
+from pytorch3d.transforms import rotation_6d_to_matrix, euler_angles_to_matrix, random_rotations, matrix_to_rotation_6d
 
 from .external.siren_pytorch import SirenNet
 from .external.image2sphere.so3_utils import so3_healpix_grid
@@ -28,6 +28,8 @@ from .so3_decomposition import so3_point_group_operations
 from .equivariant_mlp import SymmetrizedFeature, RotationFolding
 
 from .external.quantizer import VectorQuantizer
+
+from .encoder_i2s import I2S
 
 INTENSITY_MIN = 1e-8
 DIVISOR_EPS = 1e-8
@@ -110,9 +112,10 @@ class Slice2RotMat_CodeBook(nn.Module):
         euler_yxy = so3_healpix_grid(rec_level).T
         grid_rotations = euler_angles_to_matrix(euler_yxy, convention='YXY')
         self.register_buffer('ref_rotations', grid_rotations)
-        # rand_rotations = random_rotations(grid_rotations.shape[0] // 4)
-        # self.register_buffer('ref_rotations', torch.cat([grid_rotations, rand_rotations], dim=0))
         self.n_ref = self.ref_rotations.shape[0]
+
+        # self.i2s = I2S(rec_level=2, input_size=image_dimension)
+        # self.n_ref = self.i2s.output_rotmats.shape[0]
         
         self._max_val = 100.0
         self.max_val = 100.0
@@ -225,8 +228,8 @@ class Slice2RotMat_CodeBook(nn.Module):
     def forward(self, image):
         if image.ndim == 4:
             image = image.squeeze(1)
-        dist = self.distance_func_PC(image)
 
+        dist = self.distance_func_PC(image)
         if hasattr(self, 'max_val'):
             max_val = self.max_val
         else:
@@ -718,10 +721,10 @@ class NeurOrientLightning(L.LightningModule):
                 #     f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_log.mrc', 
                 #     np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN)
                 # )
-                torch.save({'volume': reciprocal_volume, 
-                            'volume_log': np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN)
-                            }, 
-                           f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_epoch{self.current_epoch}.pt')
+                # torch.save({'volume': reciprocal_volume, 
+                #             'volume_log': np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN)
+                #             }, 
+                #            f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_epoch{self.current_epoch}.pt')
             except ValueError:
                 pass
                 

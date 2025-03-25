@@ -35,6 +35,26 @@ class SymmetrizedFeature(torch.nn.Module):
         return x_symmetry
     
 
+from pytorch3d.transforms import rotation_6d_to_matrix
+class LearnableSymmetrizedFeature(torch.nn.Module):
+    def __init__(self, N_ops):
+        super().__init__()
+        self.N_ops = N_ops
+        self.register_parameter('symm_ops_6d', torch.nn.Parameter(torch.randn(self.N_ops, 6)))
+
+        self.embed_fc = SirenNet(
+            dim_in=3,
+            dim_hidden=32,
+            dim_out=3,
+            num_layers=2,
+        )
+        
+    def forward(self, x):
+        symm_ops = rotation_6d_to_matrix(self.symm_ops_6d)
+        x_expanded = torch.einsum('gij, bj -> gbi', symm_ops, x)
+        x_embeded  = self.embed_fc(x_expanded)
+        x_symmetry = x_embeded.mean(dim=0)
+        return x_symmetry
 
 class RotationFolding(torch.nn.Module):
     def __init__(self, point_group):
