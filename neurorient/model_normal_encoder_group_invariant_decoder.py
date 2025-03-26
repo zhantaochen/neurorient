@@ -20,14 +20,11 @@ from .bifpn import DepthwiseSeparableConv2d, BiFPN
 from pytorch3d.transforms import rotation_6d_to_matrix, euler_angles_to_matrix, random_rotations
 
 from .external.siren_pytorch import SirenNet
-from .external.image2sphere.so3_utils import so3_healpix_grid
 from .reconstruction.slicing import get_real_mesh, gen_nonuniform_normalized_positions
 from .utils_visualization import display_images_in_parallel, display_volumes, save_mrc
 from .lr_scheduler import CosineLRScheduler
-from .so3_decomposition import so3_point_group_operations
 from .equivariant_mlp import SymmetrizedFeature, RotationFolding
 
-from .external.quantizer import VectorQuantizer
 
 from .encoder_i2s import I2S
 
@@ -239,10 +236,6 @@ class NeurOrientLightning(L.LightningModule):
         else:
             self.loss_func = torch.nn.PoissonNLLLoss(log_input=False, full=True)
             self.log_transform = False
-            # self.model.volume_predictor = torch.nn.Sequential(
-            #     self.model.volume_predictor,
-            #     torch.nn.Softplus()
-            # )
 
     def prepare_input_slices(self, batch):
         
@@ -292,17 +285,6 @@ class NeurOrientLightning(L.LightningModule):
             orientations, self.model.pixel_position_reciprocal, self.model.over_sampling)
         if HKL.ndim == 2 and HKL.shape[0] == 3:
             HKL = HKL.T
-        # predict slices from HKL
-        # if self.log_transform:
-        #     _slices_pred_symm, _slices_pred_asymm = self.model.volume_predictor.forward_with_separated_outputs(HKL)
-        #     loss_intens_adjust = _slices_pred_asymm.abs().mean()
-        #     loss_additional += loss_intens_adjust
-        #     _slices_pred = (_slices_pred_symm + _slices_pred_asymm).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(INTENSITY_MIN), np.log(2500 * self.model.loss_scale_factor))
-        # else:
-        #     _slices_pred_symm, _slices_pred_asymm = self.model.volume_predictor.forward_with_separated_outputs(HKL)
-        #     loss_intens_adjust = _slices_pred_asymm.abs().mean()
-        #     loss_additional += loss_intens_adjust
-        #     _slices_pred = (_slices_pred_symm + _slices_pred_asymm).view((-1, 1,) + (self.model.image_dimension,)*2)
 
         if self.log_transform:
             _slices_pred = self.model.volume_predictor(HKL).view((-1, 1,) + (self.model.image_dimension,)*2).clamp(np.log(INTENSITY_MIN), np.log(2500 * self.model.loss_scale_factor))
@@ -522,15 +504,6 @@ class NeurOrientLightning(L.LightningModule):
                 display_volumes(np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN), closefig=True, cmap='gray',
                                 vmax=1e-3 * reciprocal_volume.max(),
                                 save_to=f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_log.png')
-                # save_mrc(f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol.mrc', reciprocal_volume)
-                # save_mrc(
-                #     f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_log.mrc', 
-                #     np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN)
-                # )
-                # torch.save({'volume': reciprocal_volume, 
-                #             'volume_log': np.log(reciprocal_volume.clip(INTENSITY_MIN, None)) - np.log(INTENSITY_MIN)
-                #             }, 
-                #            f'{self.fig_path}/version_{self.logger.version}_{task_type}_reciprocal_vol_epoch{self.current_epoch}.pt')
             except ValueError:
                 pass
                 
@@ -572,33 +545,3 @@ class NeurOrientLightning(L.LightningModule):
             volume = np.exp(volume) / self.model.loss_scale_factor
         
         return volume.clip(0.0)
-    
-    
-            
-    # def predict_detailed_reciprocal_volume(self, zoom=1.0):
-    #     grid_reciprocal = np.pi * self.model.grid_position_reciprocal / self.model.grid_position_reciprocal.max()
-    #     if zoom != 1.0:
-    #         grid_reciprocal = scipy.ndimage.zoom(grid_reciprocal.detach().cpu().numpy(), (zoom,zoom,zoom,1), order=1)
-    #         grid_reciprocal = torch.from_numpy(grid_reciprocal).to(self.device)
-    #     volume_symm = np.zeros(grid_reciprocal.shape[:3])
-    #     volume_nonsymm = np.zeros(grid_reciprocal.shape[:3])
-    #     with torch.no_grad():
-    #         for i in range(grid_reciprocal.shape[0]):
-    #             input_coords = grid_reciprocal[i,None,...].to(self.device)
-                
-    #             if input_coords.ndim > 2 and input_coords.shape[-1] == 3:
-    #                 out_shape = input_coords.shape[:-1]
-    #                 input_coords = input_coords.view(-1, 3)
-    #                 intensity_symm, intensity_nonsymm = self.model.volume_predictor.forward_with_separated_outputs(input_coords)
-    #                 intensity_symm = intensity_symm.view(out_shape)
-    #                 intensity_nonsymm = intensity_nonsymm.view(out_shape)
-    #             else:
-    #                 intensity_symm, intensity_nonsymm = self.model.volume_predictor.forward_with_separated_outputs(input_coords)
-
-    #             volume_symm[i] = intensity_symm.detach().cpu().clamp(np.log(INTENSITY_MIN), np.log(2500 * self.model.loss_scale_factor)).numpy().squeeze()
-    #             volume_nonsymm[i] = intensity_nonsymm.detach().cpu().clamp(np.log(INTENSITY_MIN), np.log(2500 * self.model.loss_scale_factor)).numpy().squeeze()
-    #     # if self.log_transform:
-    #     #     volume_symm = np.exp(volume_symm) / self.model.loss_scale_factor
-    #         # volume_nonsymm = np.exp(volume_nonsymm) / self.model.loss_scale_factor
-        
-    #     return volume_symm, volume_nonsymm

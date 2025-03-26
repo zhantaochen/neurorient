@@ -2,7 +2,7 @@ import torch
 
 import matplotlib.pyplot as plt
 import numpy as np
-from .external.image2sphere.so3_utils import so3_healpix_grid
+# from .external.image2sphere.so3_utils import so3_healpix_grid
 from .so3_relative_angle import so3_relative_angle
 
 from pytorch3d.transforms import euler_angles_to_matrix, matrix_to_euler_angles

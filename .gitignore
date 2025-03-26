@@ -18,3 +18,4 @@ dragonfly_utils/
 
 *.dat
 *.h5
+*.pyc
