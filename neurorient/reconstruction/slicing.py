@@ -1,4 +1,6 @@
-# taken from https://gitlab.osti.gov/mtip/spinifel/
+"""
+taken from https://gitlab.osti.gov/mtip/spinifel/
+"""
 
 from math import pi
 import numpy as np

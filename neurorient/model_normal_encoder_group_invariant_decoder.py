@@ -26,8 +26,6 @@ from .lr_scheduler import CosineLRScheduler
 from .equivariant_mlp import SymmetrizedFeature, RotationFolding
 
 
-from .encoder_i2s import I2S
-
 INTENSITY_MIN = 1e-8
 DIVISOR_EPS = 1e-8
 

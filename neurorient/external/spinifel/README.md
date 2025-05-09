@@ -1,0 +1,1 @@
+Scripts taken/adapted from SPINIFEL: https://gitlab.osti.gov/mtip/spinifel

@@ -134,15 +134,6 @@ def display_images(images, columns, vmax=None, size=3,
             _ax.set_title(title[k])
         _ax.axis('off')
         
-    # fig = plt.figure(figsize=(columns * size, rows * size), gs_kwargs=gs_kwargs)
-    # for k, image in zip(position, images):
-    #     ax = fig.add_subplot(rows, columns, k)
-    #     ax.imshow(image, cmap=cmap, vmax=vmax)
-    #     ax.set_aspect('equal')
-    #     if title != 'none':
-    #         ax.set_title(title[k-1])
-    #     plt.axis('off')
-        
     if save_to is not None:
         fig.savefig(save_to, bbox_inches='tight')
         

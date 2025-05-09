@@ -1,4 +1,7 @@
-# adapted from pytorch3d.transformation functions
+'''
+adapted from pytorch3d.transformation functions
+https://pytorch3d.readthedocs.io/en/latest/modules/transforms.html 
+'''
 
 import torch
 import torch.nn.functional as F
